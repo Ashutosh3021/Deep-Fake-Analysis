@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Content Detection Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+                <h1>DeepGuard AI</h1>
+            </div>
+            <nav class="nav">
+                <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+                <button class="nav-btn" data-tab="history">History</button>
+                <button class="nav-btn" data-tab="about">About</button>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Tab -->
+            <div id="dashboard" class="tab-content active">
+                <!-- Stats Overview -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon accuracy">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                <polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3>Avg. Accuracy</h3>
+                            <p class="stat-value">94.1%</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon detected">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3>AI Detected</h3>
+                            <p class="stat-value" id="detected-count">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon analyzed">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                                <polyline points="10 9 9 9 8 9"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3>Analyzed</h3>
+                            <p class="stat-value" id="analyzed-count">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detection Section -->
+                <div class="detection-section">
+                    <div class="upload-area" id="upload-area">
+                        <input type="file" id="file-input" class="file-input" accept="image/*,video/*,audio/*,.txt">
+                        <div class="upload-content">
+                            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <h3>Drop files here or click to upload</h3>
+                            <p>Supports: Images, Videos, Audio, Text</p>
+                            <span class="file-types">PNG, JPG, MP4, MP3, WAV, TXT</span>
+                        </div>
+                    </div>
+
+                    <!-- Text Input Area -->
+                    <div class="text-input-section">
+                        <h3>Or analyze text directly:</h3>
+                        <textarea id="text-input" placeholder="Paste text here to detect AI-generated content..."></textarea>
+                        <button class="analyze-btn" id="analyze-text-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            </svg>
+                            Analyze Text
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div class="results-section" id="results-section" style="display: none;">
+                    <h2>Analysis Results</h2>
+                    <div class="result-card">
+                        <div class="result-header">
+                            <div class="file-info">
+                                <span class="file-type-badge" id="result-file-type">Image</span>
+                                <h3 id="result-filename">filename.jpg</h3>
+                            </div>
+                            <div class="result-verdict" id="result-verdict">
+                                <span class="verdict-badge">AI Generated</span>
+                            </div>
+                        </div>
+
+                        <div class="confidence-meter">
+                            <div class="meter-label">
+                                <span>Confidence Score</span>
+                                <span class="confidence-value" id="confidence-value">95.2%</span>
+                            </div>
+                            <div class="meter-bar">
+                                <div class="meter-fill" id="confidence-fill"></div>
+                            </div>
+                        </div>
+
+                        <div class="result-details">
+                            <div class="detail-grid">
+                                <div class="detail-item">
+                                    <span class="detail-label">Detection Method</span>
+                                    <span class="detail-value" id="detection-method">Ensemble ML</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Model Accuracy</span>
+                                    <span class="detail-value" id="model-accuracy">95.8%</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Probability</span>
+                                    <span class="detail-value" id="probability-value">0.952</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Analysis Time</span>
+                                    <span class="detail-value" id="analysis-time">1.2s</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="model-breakdown" id="model-breakdown">
+                            <h4>Model Breakdown</h4>
+                            <div class="breakdown-list" id="breakdown-list">
+                                <!-- Dynamic content -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div id="history" class="tab-content">
+                <div class="history-header">
+                    <h2>Analysis History</h2>
+                    <button class="clear-btn" id="clear-history">Clear History</button>
+                </div>
+                <div class="history-list" id="history-list">
+                    <p class="empty-state">No analyses yet. Start by uploading a file!</p>
+                </div>
+            </div>
+
+            <!-- About Tab -->
+            <div id="about" class="tab-content">
+                <div class="about-content">
+                    <h2>About DeepGuard AI</h2>
+                    <p class="about-description">
+                        DeepGuard AI is an advanced multi-modal deepfake and AI-generated content detection system. 
+                        Using state-of-the-art machine learning models, it can detect manipulated or AI-generated 
+                        content across images, videos, audio, and text with high accuracy.
+                    </p>
+
+                    <div class="tech-stack">
+                        <h3>Technology Stack</h3>
+                        <div class="tech-grid">
+                            <div class="tech-item">
+                                <span class="tech-name">Image Detection</span>
+                                <span class="tech-desc">Ensemble CNN with 95.8% accuracy</span>
+                            </div>
+                            <div class="tech-item">
+                                <span class="tech-name">Video Detection</span>
+                                <span class="tech-desc">3D CNN + Optical Flow analysis</span>
+                            </div>
+                            <div class="tech-item">
+                                <span class="tech-name">Audio Detection</span>
+                                <span class="tech-desc">CNN-LSTM with artifact detection</span>
+                            </div>
+                            <div class="tech-item">
+                                <span class="tech-name">Text Detection</span>
+                                <span class="tech-desc">Statistical + Neural analysis</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="features">
+                        <h3>Key Features</h3>
+                        <ul class="feature-list">
+                            <li>Multi-modal content detection</li>
+                            <li>Ensemble model architecture for higher accuracy</li>
+                            <li>Real-time analysis and visualization</li>
+                            <li>Detailed confidence breakdown</li>
+                            <li>History tracking and reporting</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2026 DeepGuard AI. Advanced Deepfake Detection System.</p>
+        </footer>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-spinner"></div>
+        <p>Analyzing content...</p>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
