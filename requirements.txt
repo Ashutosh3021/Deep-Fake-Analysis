@@ -15,7 +15,7 @@ scipy==1.11.2
 # Computer Vision
 opencv-python==4.8.0.76
 opencv-contrib-python==4.8.0.76
-mediapipe==0.10.3
+mediapipe==0.10.5
 Pillow==10.0.0
 
 # Audio Processing
@@ -32,6 +32,10 @@ seaborn==0.12.2
 requests==2.31.0
 python-dotenv==1.0.0
 tqdm==4.66.1
+
+# Query Assistant — Object Detection + Gemini
+ultralytics==8.2.0
+google-generativeai==0.7.2
 
 # Optional - for production deployment
 # gunicorn==21.2.0

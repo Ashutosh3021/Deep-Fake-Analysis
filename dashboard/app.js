@@ -60,7 +60,7 @@ class DeepGuardDashboard {
     handleDrop(e) {
         e.preventDefault();
         e.currentTarget.classList.remove('dragover');
-        
+
         const files = e.dataTransfer.files;
         if (files.length > 0) {
             this.processFile(files[0]);
@@ -91,7 +91,7 @@ class DeepGuardDashboard {
             }
 
             const data = await response.json();
-            
+
             if (data.success) {
                 this.displayResults(data.result, file.name, data.file_type);
                 this.addToHistory(file.name, data.file_type, data.result);
@@ -132,7 +132,7 @@ class DeepGuardDashboard {
             }
 
             const data = await response.json();
-            
+
             if (data.success) {
                 this.displayResults(data.result, 'Text Input', 'text');
                 this.addToHistory('Text Input', 'text', data.result);
@@ -159,7 +159,7 @@ class DeepGuardDashboard {
 
         // Determine verdict
         let isFake, confidence, label, verdictClass;
-        
+
         if (fileType === 'text') {
             isFake = result.is_ai_generated;
             confidence = result.confidence;
@@ -184,16 +184,16 @@ class DeepGuardDashboard {
         document.getElementById('confidence-value').textContent = `${confidence}%`;
         const meterFill = document.getElementById('confidence-fill');
         meterFill.style.width = `${confidence}%`;
-        meterFill.style.background = isFake 
-            ? 'linear-gradient(90deg, #f59e0b 0%, #ef4444 100%)' 
+        meterFill.style.background = isFake
+            ? 'linear-gradient(90deg, #f59e0b 0%, #ef4444 100%)'
             : 'linear-gradient(90deg, #10b981 0%, #059669 100%)';
 
         // Update details
         document.getElementById('detection-method').textContent = result.detection_method || 'Ensemble ML';
         document.getElementById('model-accuracy').textContent = result.accuracy_rating || 'N/A';
-        
-        const probability = fileType === 'text' ? result.ai_probability : 
-                          fileType === 'image' ? result.ensemble_score : result.fake_probability;
+
+        const probability = fileType === 'text' ? result.ai_probability :
+            fileType === 'image' ? result.ensemble_score : result.fake_probability;
         document.getElementById('probability-value').textContent = probability ? probability.toFixed(3) : 'N/A';
 
         // Update breakdown
@@ -208,7 +208,7 @@ class DeepGuardDashboard {
         breakdownList.innerHTML = '';
 
         const models = result.model_predictions || result.individual_predictions;
-        
+
         if (models) {
             Object.entries(models).forEach(([name, score]) => {
                 if (typeof score === 'number') {
@@ -246,7 +246,7 @@ class DeepGuardDashboard {
     displayMockResults(filename, fileType) {
         const isFake = Math.random() > 0.5;
         const confidence = (70 + Math.random() * 25).toFixed(1);
-        
+
         const mockResult = {
             label: isFake ? 'FAKE' : 'REAL',
             confidence: parseFloat(confidence),
@@ -294,7 +294,7 @@ class DeepGuardDashboard {
 
     renderHistory() {
         const historyList = document.getElementById('history-list');
-        
+
         if (this.history.length === 0) {
             historyList.innerHTML = '<p class="empty-state">No analyses yet. Start by uploading a file!</p>';
             return;
@@ -302,7 +302,7 @@ class DeepGuardDashboard {
 
         historyList.innerHTML = this.history.map(item => {
             let isFake, label, verdictClass;
-            
+
             if (item.fileType === 'text') {
                 isFake = item.result.is_ai_generated;
                 label = isFake ? 'AI Generated' : 'Human';
@@ -393,4 +393,241 @@ class DeepGuardDashboard {
 // Initialize dashboard when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.dashboard = new DeepGuardDashboard();
+    window.queryAssistant = new QueryAssistant();
 });
+
+/* ════════════════════════════════════════════════════════════
+   Query Assistant
+   ════════════════════════════════════════════════════════════ */
+class QueryAssistant {
+    constructor() {
+        this.apiBaseUrl = 'http://localhost:5000';
+        this.currentMode = 'image'; // 'image' | 'text'
+        this.selectedFile = null;
+        this.init();
+    }
+
+    init() {
+        this._bindModeButtons();
+        this._bindImagePanel();
+        this._bindTextPanel();
+    }
+
+    // ── Mode switching ──────────────────────────────────────
+    _bindModeButtons() {
+        document.getElementById('mode-image-btn').addEventListener('click', () => this._setMode('image'));
+        document.getElementById('mode-text-btn').addEventListener('click', () => this._setMode('text'));
+    }
+
+    _setMode(mode) {
+        this.currentMode = mode;
+
+        // Toggle active class on buttons
+        document.getElementById('mode-image-btn').classList.toggle('active', mode === 'image');
+        document.getElementById('mode-text-btn').classList.toggle('active', mode === 'text');
+
+        // Show / hide panels
+        document.getElementById('qa-image-panel').style.display = mode === 'image' ? '' : 'none';
+        document.getElementById('qa-text-panel').style.display = mode === 'text' ? '' : 'none';
+
+        // Hide stale results
+        document.getElementById('qa-results').style.display = 'none';
+    }
+
+    // ── Image panel ─────────────────────────────────────────
+    _bindImagePanel() {
+        const zone = document.getElementById('qa-upload-zone');
+        const fileInput = document.getElementById('qa-file-input');
+        const submitBtn = document.getElementById('qa-image-submit');
+
+        // Click on zone → open file picker
+        zone.addEventListener('click', (e) => {
+            if (e.target === fileInput) return;
+            fileInput.click();
+        });
+
+        // Drag-and-drop
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            zone.classList.add('dragover');
+        });
+        zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            zone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) this._setImageFile(file);
+        });
+
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files[0]) this._setImageFile(e.target.files[0]);
+        });
+
+        // Submit
+        submitBtn.addEventListener('click', () => this._submitImageQuery());
+    }
+
+    _setImageFile(file) {
+        this.selectedFile = file;
+
+        const preview = document.getElementById('qa-preview');
+        const content = document.getElementById('qa-upload-content');
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+            content.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async _submitImageQuery() {
+        if (!this.selectedFile) {
+            alert('Please select an image first.');
+            return;
+        }
+
+        const query = document.getElementById('qa-image-query').value.trim();
+        const btn = document.getElementById('qa-image-submit');
+        btn.disabled = true;
+        this._showQaLoading(true);
+
+        try {
+            const formData = new FormData();
+            formData.append('file', this.selectedFile);
+            if (query) formData.append('query', query);
+
+            const response = await fetch(`${this.apiBaseUrl}/api/query`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Request failed');
+
+            this._renderImageResult(data);
+        } catch (err) {
+            this._renderError(err.message);
+        } finally {
+            btn.disabled = false;
+            this._showQaLoading(false);
+        }
+    }
+
+    _renderImageResult(data) {
+        const resultsEl = document.getElementById('qa-results');
+        const objSection = document.getElementById('qa-objects-section');
+        const tagsEl = document.getElementById('qa-object-tags');
+        const answerEl = document.getElementById('qa-gemini-answer');
+
+        resultsEl.style.display = '';
+
+        // Objects
+        if (data.objects && data.objects.length > 0) {
+            objSection.style.display = '';
+            // Deduplicate by name, keep highest confidence
+            const best = {};
+            data.objects.forEach(o => {
+                if (!best[o.name] || o.confidence > best[o.name]) best[o.name] = o.confidence;
+            });
+            tagsEl.innerHTML = Object.entries(best)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, conf]) =>
+                    `<span class="object-tag">
+                        ${name}
+                        <span class="tag-conf">${conf}%</span>
+                    </span>`
+                ).join('');
+        } else {
+            objSection.style.display = 'none';
+            tagsEl.innerHTML = '';
+        }
+
+        // Gemini answer
+        answerEl.textContent = data.gemini_answer || '(No response)';
+        resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // ── Text panel ──────────────────────────────────────────
+    _bindTextPanel() {
+        document.getElementById('qa-text-submit').addEventListener('click', () => this._submitTextQuery());
+
+        // Ctrl+Enter shortcut in textarea
+        document.getElementById('qa-text-query').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                this._submitTextQuery();
+            }
+        });
+    }
+
+    async _submitTextQuery() {
+        const textarea = document.getElementById('qa-text-query');
+        const query = textarea.value.trim();
+
+        if (!query) {
+            alert('Please enter a question.');
+            return;
+        }
+
+        const btn = document.getElementById('qa-text-submit');
+        btn.disabled = true;
+        this._showQaLoading(true);
+
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/api/query`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query }),
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Request failed');
+
+            this._renderTextResult(data);
+        } catch (err) {
+            this._renderError(err.message);
+        } finally {
+            btn.disabled = false;
+            this._showQaLoading(false);
+        }
+    }
+
+    _renderTextResult(data) {
+        const resultsEl = document.getElementById('qa-results');
+        const objSection = document.getElementById('qa-objects-section');
+        const answerEl = document.getElementById('qa-gemini-answer');
+
+        objSection.style.display = 'none';
+        resultsEl.style.display = '';
+        answerEl.textContent = data.gemini_answer || '(No response)';
+        resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // ── Helpers ─────────────────────────────────────────────
+    _renderError(msg) {
+        const resultsEl = document.getElementById('qa-results');
+        const objSec = document.getElementById('qa-objects-section');
+        const answerEl = document.getElementById('qa-gemini-answer');
+
+        objSec.style.display = 'none';
+        resultsEl.style.display = '';
+        answerEl.innerHTML = `<span style="color:#ef4444;">⚠ Error: ${msg}</span>`;
+        resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    _showQaLoading(show) {
+        // Reuse existing loading overlay
+        const overlay = document.getElementById('loading-overlay');
+        const p = overlay.querySelector('p');
+        if (show) {
+            if (p) p.textContent = 'Querying assistant…';
+            overlay.classList.add('active');
+        } else {
+            if (p) p.textContent = 'Analyzing content…';
+            overlay.classList.remove('active');
+        }
+    }
+}

@@ -11,6 +11,10 @@ from werkzeug.utils import secure_filename
 import warnings
 warnings.filterwarnings('ignore')
 
+# Load .env from project root (one level above backend/)
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
+
 # Import enhanced models
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -75,6 +79,18 @@ def get_text_detector():
             print(f"Error loading text detector: {e}")
             return None
     return models['text']
+
+def get_query_assistant():
+    """Lazy load the Query Assistant (YOLOv8 + Gemini)"""
+    if 'query_assistant' not in models:
+        try:
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models'))
+            import query_assistant
+            models['query_assistant'] = query_assistant
+        except Exception as e:
+            print(f"Error loading query assistant: {e}")
+            return None
+    return models['query_assistant']
 
 def allowed_file(filename):
     """Check if file extension is allowed"""
@@ -307,6 +323,64 @@ def detect_auto():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/query', methods=['POST'])
+def query_assistant_endpoint():
+    """
+    Query Assistant endpoint.
+    Accepts multipart/form-data with optional 'file' (image) and 'query' (string),
+    OR application/json with a 'query' field.
+
+    Modes:
+      - image + optional query  →  YOLOv8 detection + Gemini answer
+      - text query only         →  Gemini answer
+    """
+    try:
+        qa = get_query_assistant()
+        if qa is None:
+            return jsonify({'error': 'Query Assistant failed to load. Check server logs.'}), 500
+
+        # ── Image mode ──────────────────────────────────────────
+        if 'file' in request.files and request.files['file'].filename:
+            file = request.files['file']
+            if not allowed_file(file.filename):
+                return jsonify({'error': 'Unsupported image type.'}), 400
+
+            user_query = request.form.get('query', '').strip()
+
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+
+            try:
+                result = qa.analyze_image(filepath, user_query=user_query)
+            finally:
+                try:
+                    os.remove(filepath)
+                except Exception:
+                    pass
+
+            return jsonify({'success': True, **result})
+
+        # ── Text-only mode ───────────────────────────────────────
+        # Support both JSON body and form data
+        if request.is_json:
+            data = request.get_json()
+            query = data.get('query', '').strip() if data else ''
+        else:
+            query = request.form.get('query', '').strip()
+
+        if not query:
+            return jsonify({'error': 'Provide an image file or a text query.'}), 400
+
+        result = qa.answer_text_query(query)
+        return jsonify({'success': True, **result})
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Get API status and available models"""
@@ -316,9 +390,10 @@ def get_status():
             'image': get_image_detector() is not None,
             'audio': get_audio_detector() is not None,
             'video': get_video_detector() is not None,
-            'text': get_text_detector() is not None
+            'text': get_text_detector() is not None,
+            'query_assistant': get_query_assistant() is not None,
         },
-        'supported_types': ['image', 'audio', 'video', 'text']
+        'supported_types': ['image', 'audio', 'video', 'text', 'query']
     })
 
 def mock_image_detection(filepath):
@@ -399,7 +474,8 @@ if __name__ == '__main__':
     print("  - POST /api/detect/video")
     print("  - POST /api/detect/text")
     print("  - POST /api/detect/auto")
+    print("  - POST /api/query         ← NEW: Query Assistant (YOLOv8 + Gemini)")
     print("  - GET  /api/status")
     print("\nDashboard available at: http://localhost:5000")
-    
+
     app.run(host='0.0.0.0', port=5000, debug=True)

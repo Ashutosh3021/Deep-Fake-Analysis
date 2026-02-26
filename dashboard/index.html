@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,18 +8,20 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <div class="container">
         <!-- Header -->
         <header class="header">
             <div class="logo">
                 <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                 </svg>
                 <h1>DeepGuard AI</h1>
             </div>
             <nav class="nav">
                 <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+                <button class="nav-btn" data-tab="query">Query Assistant</button>
                 <button class="nav-btn" data-tab="history">History</button>
                 <button class="nav-btn" data-tab="about">About</button>
             </nav>
@@ -33,8 +36,8 @@
                     <div class="stat-card">
                         <div class="stat-icon accuracy">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                                <polyline points="22 4 12 14.01 9 11.01"/>
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                <polyline points="22 4 12 14.01 9 11.01" />
                             </svg>
                         </div>
                         <div class="stat-info">
@@ -45,7 +48,7 @@
                     <div class="stat-card">
                         <div class="stat-icon detected">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                             </svg>
                         </div>
                         <div class="stat-info">
@@ -56,11 +59,11 @@
                     <div class="stat-card">
                         <div class="stat-icon analyzed">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                <polyline points="14 2 14 8 20 8"/>
-                                <line x1="16" y1="13" x2="8" y2="13"/>
-                                <line x1="16" y1="17" x2="8" y2="17"/>
-                                <polyline points="10 9 9 9 8 9"/>
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="16" y1="13" x2="8" y2="13" />
+                                <line x1="16" y1="17" x2="8" y2="17" />
+                                <polyline points="10 9 9 9 8 9" />
                             </svg>
                         </div>
                         <div class="stat-info">
@@ -75,10 +78,11 @@
                     <div class="upload-area" id="upload-area">
                         <input type="file" id="file-input" class="file-input" accept="image/*,video/*,audio/*,.txt">
                         <div class="upload-content">
-                            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="17 8 12 3 7 8"/>
-                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
                             </svg>
                             <h3>Drop files here or click to upload</h3>
                             <p>Supports: Images, Videos, Audio, Text</p>
@@ -89,11 +93,12 @@
                     <!-- Text Input Area -->
                     <div class="text-input-section">
                         <h3>Or analyze text directly:</h3>
-                        <textarea id="text-input" placeholder="Paste text here to detect AI-generated content..."></textarea>
+                        <textarea id="text-input"
+                            placeholder="Paste text here to detect AI-generated content..."></textarea>
                         <button class="analyze-btn" id="analyze-text-btn">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="11" cy="11" r="8"/>
-                                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
                             </svg>
                             Analyze Text
                         </button>
@@ -155,6 +160,125 @@
                 </div>
             </div>
 
+            <!-- ══════════════════════════════════════════════════════ -->
+            <!-- Query Assistant Tab                                    -->
+            <!-- ══════════════════════════════════════════════════════ -->
+            <div id="query" class="tab-content">
+
+                <div class="query-header">
+                    <div class="query-title-block">
+                        <svg class="query-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                        <div>
+                            <h2>Query Assistant</h2>
+                            <p class="query-subtitle">Upload an image for object detection, or ask any question —
+                                powered by Gemini&nbsp;2.0&nbsp;Flash</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mode Selector -->
+                <div class="query-mode-selector">
+                    <button class="mode-btn active" id="mode-image-btn" data-mode="image">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <circle cx="8.5" cy="8.5" r="1.5" />
+                            <polyline points="21 15 16 10 5 21" />
+                        </svg>
+                        Image Analysis
+                    </button>
+                    <button class="mode-btn" id="mode-text-btn" data-mode="text">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </svg>
+                        Text Query
+                    </button>
+                </div>
+
+                <!-- ── Image Panel ── -->
+                <div id="qa-image-panel" class="qa-panel">
+                    <div class="qa-upload-zone" id="qa-upload-zone">
+                        <input type="file" id="qa-file-input" class="file-input"
+                            accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">
+                        <div class="qa-upload-content" id="qa-upload-content">
+                            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                            <p class="qa-upload-label">Drop an image here or <span>click to browse</span></p>
+                            <p class="qa-upload-hint">PNG, JPG, JPEG, GIF, WEBP</p>
+                        </div>
+                        <img id="qa-preview" class="qa-preview" alt="Preview" style="display:none;">
+                    </div>
+
+                    <div class="qa-query-row">
+                        <input type="text" id="qa-image-query" class="qa-text-input"
+                            placeholder="Ask something about the image (optional)…">
+                        <button class="qa-submit-btn" id="qa-image-submit">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13" />
+                                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                            </svg>
+                            Analyze
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── Text Panel ── -->
+                <div id="qa-text-panel" class="qa-panel" style="display:none;">
+                    <textarea id="qa-text-query" class="qa-textarea"
+                        placeholder="Ask Gemini anything — e.g. 'What is a deepfake?', 'Explain GANs in simple terms'…"
+                        rows="5"></textarea>
+                    <div class="qa-text-actions">
+                        <button class="qa-submit-btn" id="qa-text-submit">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13" />
+                                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                            </svg>
+                            Ask Gemini
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── Results ── -->
+                <div id="qa-results" class="qa-results" style="display:none;">
+
+                    <!-- Object detection tags (image mode only) -->
+                    <div id="qa-objects-section" style="display:none;">
+                        <h4 class="qa-section-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z" />
+                                <line x1="8" y1="2" x2="8" y2="18" />
+                                <line x1="16" y1="6" x2="16" y2="22" />
+                            </svg>
+                            Detected Objects
+                        </h4>
+                        <div class="object-tags" id="qa-object-tags"></div>
+                    </div>
+
+                    <!-- Gemini answer card -->
+                    <div class="gemini-card">
+                        <div class="gemini-card-header">
+                            <svg class="gemini-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polygon
+                                    points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                            </svg>
+                            <span>Gemini 2.5 Flash</span>
+                        </div>
+                        <div class="gemini-answer" id="qa-gemini-answer"></div>
+                    </div>
+
+                </div>
+
+            </div><!-- end #query -->
+
             <!-- History Tab -->
             <div id="history" class="tab-content">
                 <div class="history-header">
@@ -171,8 +295,8 @@
                 <div class="about-content">
                     <h2>About DeepGuard AI</h2>
                     <p class="about-description">
-                        DeepGuard AI is an advanced multi-modal deepfake and AI-generated content detection system. 
-                        Using state-of-the-art machine learning models, it can detect manipulated or AI-generated 
+                        DeepGuard AI is an advanced multi-modal deepfake and AI-generated content detection system.
+                        Using state-of-the-art machine learning models, it can detect manipulated or AI-generated
                         content across images, videos, audio, and text with high accuracy.
                     </p>
 
@@ -226,4 +350,5 @@
 
     <script src="app.js"></script>
 </body>
+
 </html>
