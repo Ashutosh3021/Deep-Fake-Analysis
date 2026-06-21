@@ -157,43 +157,49 @@ class DeepGuardDashboard {
         document.getElementById('result-file-type').textContent = fileType.charAt(0).toUpperCase() + fileType.slice(1);
         document.getElementById('result-filename').textContent = filename;
 
-        // Determine verdict
+        // Determine verdict based on new result format
         let isFake, confidence, label, verdictClass;
 
         if (fileType === 'text') {
-            isFake = result.is_ai_generated;
+            isFake = result.label === 'AI_GENERATED';
             confidence = result.confidence;
-            label = isFake ? 'AI Generated' : 'Human Written';
-        } else if (fileType === 'image') {
+            label = isFake ? 'AI Generated' : (result.label === 'HUMAN_WRITTEN' ? 'Human Written' : 'Uncertain');
+        } else if (fileType === 'audio') {
+            isFake = result.label === 'SYNTHETIC';
+            confidence = result.confidence;
+            label = isFake ? 'Synthetic' : (result.label === 'AUTHENTIC' ? 'Authentic' : 'Uncertain');
+        } else { // image or video
             isFake = result.label === 'FAKE';
             confidence = result.confidence;
-            label = isFake ? 'AI Generated' : 'Authentic';
-        } else {
-            isFake = result.is_fake;
-            confidence = result.confidence;
-            label = isFake ? 'AI Generated' : 'Authentic';
+            label = isFake ? 'Fake' : (result.label === 'AUTHENTIC' ? 'Authentic' : 'Uncertain');
         }
 
-        verdictClass = isFake ? 'fake' : 'real';
+        verdictClass = isFake ? 'fake' : (result.label === 'UNCERTAIN' ? 'uncertain' : 'real');
 
         // Update verdict
         const verdictEl = document.getElementById('result-verdict');
         verdictEl.innerHTML = `<span class="verdict-badge ${verdictClass}">${label}</span>`;
 
         // Update confidence
-        document.getElementById('confidence-value').textContent = `${confidence}%`;
+        document.getElementById('confidence-value').textContent = `${typeof confidence === 'number' ? confidence.toFixed(1) : confidence}%`;
         const meterFill = document.getElementById('confidence-fill');
         meterFill.style.width = `${confidence}%`;
         meterFill.style.background = isFake
             ? 'linear-gradient(90deg, #f59e0b 0%, #ef4444 100%)'
-            : 'linear-gradient(90deg, #10b981 0%, #059669 100%)';
+            : (result.label === 'UNCERTAIN' ? 'linear-gradient(90deg, #6b7280 0%, #4b5563 100%)' : 'linear-gradient(90deg, #10b981 0%, #059669 100%)');
 
-        // Update details
-        document.getElementById('detection-method').textContent = result.detection_method || 'Ensemble ML';
-        document.getElementById('model-accuracy').textContent = result.accuracy_rating || 'N/A';
+        // Update details with new fields
+        document.getElementById('detection-method').textContent = result.signal_source || result.notes || 'Advanced ML';
+        document.getElementById('model-accuracy').textContent = 'N/A';
 
-        const probability = fileType === 'text' ? result.ai_probability :
-            fileType === 'image' ? result.ensemble_score : result.fake_probability;
+        let probability;
+        if (fileType === 'text') {
+            probability = result.ai_probability;
+        } else if (fileType === 'audio') {
+            probability = result.fake_probability;
+        } else {
+            probability = result.family_scores ? Object.values(result.family_scores).filter(v => typeof v === 'number').sort((a, b) => b - a)[0] : null;
+        }
         document.getElementById('probability-value').textContent = probability ? probability.toFixed(3) : 'N/A';
 
         // Update breakdown
@@ -207,24 +213,56 @@ class DeepGuardDashboard {
         const breakdownList = document.getElementById('breakdown-list');
         breakdownList.innerHTML = '';
 
-        const models = result.model_predictions || result.individual_predictions;
-
-        if (models) {
-            Object.entries(models).forEach(([name, score]) => {
-                if (typeof score === 'number') {
+        // Handle new result formats
+        if (fileType === 'image' || fileType === 'video') {
+            // Display fake_type as badges
+            if (result.fake_type && result.fake_type.length > 0) {
+                const fakeTypeItem = document.createElement('div');
+                fakeTypeItem.className = 'breakdown-item';
+                fakeTypeItem.innerHTML = `<span class="breakdown-name">Fake Type</span><div style="display: flex; gap: 8px;">${result.fake_type.map(type => `<span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 12px;">${type.replace('_', ' ')}</span>`).join('')}</div>`;
+                breakdownList.appendChild(fakeTypeItem);
+            }
+            // Display reasons
+            if (result.reasons && result.reasons.length > 0) {
+                result.reasons.forEach((reason, index) => {
                     const item = document.createElement('div');
                     item.className = 'breakdown-item';
                     item.innerHTML = `
-                        <span class="breakdown-name">${this.formatModelName(name)}</span>
-                        <div class="breakdown-bar">
-                            <div class="breakdown-fill" style="width: ${(score * 100).toFixed(1)}%"></div>
+                        <span class="breakdown-name">${reason.signal || 'Reason ' + (index + 1)}</span>
+                        <div style="flex: 1; margin: 0 16px; display: flex; flex-direction: column; gap: 4px;">
+                            <div style="color: #374151; font-size: 13px;">${reason.description || ''}</div>
+                            <div class="breakdown-bar">
+                                <div class="breakdown-fill" style="width: ${(reason.score * 100).toFixed(1)}%"></div>
+                            </div>
                         </div>
-                        <span class="breakdown-score">${(score * 100).toFixed(1)}%</span>
+                        <span class="breakdown-score">${(reason.score * 100).toFixed(1)}%</span>
                     `;
                     breakdownList.appendChild(item);
-                }
-            });
-        } else {
+                });
+            }
+        } else if (fileType === 'audio') {
+            // Audio specific details
+            const signalItem = document.createElement('div');
+            signalItem.className = 'breakdown-item';
+            signalItem.innerHTML = `
+                <span class="breakdown-name">Signal Source</span>
+                <div style="flex: 1; color: #374151;">${result.signal_source || 'N/A'}</div>
+                <span class="breakdown-score">${(result.fake_probability * 100).toFixed(1)}%</span>
+            `;
+            breakdownList.appendChild(signalItem);
+        } else if (fileType === 'text') {
+            // Text specific details
+            const perplexityItem = document.createElement('div');
+            perplexityItem.className = 'breakdown-item';
+            perplexityItem.innerHTML = `
+                <span class="breakdown-name">Perplexity Score</span>
+                <div style="flex: 1; color: #374151;">${result.perplexity_signal !== null ? (result.perplexity_signal * 100).toFixed(1) + '%' : 'N/A'}</div>
+                <span class="breakdown-score">${(result.ai_probability * 100).toFixed(1)}%</span>
+            `;
+            breakdownList.appendChild(perplexityItem);
+        }
+
+        if (breakdownList.children.length === 0) {
             breakdownList.innerHTML = '<p style="color: #6b7280; text-align: center;">Detailed breakdown not available</p>';
         }
     }
@@ -304,17 +342,17 @@ class DeepGuardDashboard {
             let isFake, label, verdictClass;
 
             if (item.fileType === 'text') {
-                isFake = item.result.is_ai_generated;
-                label = isFake ? 'AI Generated' : 'Human';
-            } else if (item.fileType === 'image') {
+                isFake = item.result.label === 'AI_GENERATED';
+                label = isFake ? 'AI Generated' : (item.result.label === 'HUMAN_WRITTEN' ? 'Human' : 'Uncertain');
+            } else if (item.fileType === 'audio') {
+                isFake = item.result.label === 'SYNTHETIC';
+                label = isFake ? 'Synthetic' : (item.result.label === 'AUTHENTIC' ? 'Authentic' : 'Uncertain');
+            } else { // image or video
                 isFake = item.result.label === 'FAKE';
-                label = isFake ? 'AI Generated' : 'Authentic';
-            } else {
-                isFake = item.result.is_fake;
-                label = isFake ? 'AI Generated' : 'Authentic';
+                label = isFake ? 'Fake' : (item.result.label === 'AUTHENTIC' ? 'Authentic' : 'Uncertain');
             }
 
-            verdictClass = isFake ? 'fake' : 'real';
+            verdictClass = isFake ? 'fake' : (item.result.label === 'UNCERTAIN' ? 'uncertain' : 'real');
             const icon = this.getFileIcon(item.fileType);
 
             return `
@@ -330,7 +368,7 @@ class DeepGuardDashboard {
                     </div>
                     <div class="history-result">
                         <span class="history-verdict ${verdictClass}">${label}</span>
-                        <div class="history-confidence">${item.result.confidence.toFixed(1)}% confidence</div>
+                        <div class="history-confidence">${typeof item.result.confidence === 'number' ? item.result.confidence.toFixed(1) : item.result.confidence}% confidence</div>
                     </div>
                 </div>
             `;
@@ -359,9 +397,9 @@ class DeepGuardDashboard {
     updateStats() {
         const analyzedCount = this.history.length;
         const detectedCount = this.history.filter(item => {
-            if (item.fileType === 'text') return item.result.is_ai_generated;
-            if (item.fileType === 'image') return item.result.label === 'FAKE';
-            return item.result.is_fake;
+            if (item.fileType === 'text') return item.result.label === 'AI_GENERATED';
+            if (item.fileType === 'audio') return item.result.label === 'SYNTHETIC';
+            return item.result.label === 'FAKE';
         }).length;
 
         document.getElementById('analyzed-count').textContent = analyzedCount;

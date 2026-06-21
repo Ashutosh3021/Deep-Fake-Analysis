@@ -15,9 +15,9 @@ warnings.filterwarnings('ignore')
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
-# Import enhanced models
+# Import new models from models/ directory
 import sys
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models'))
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -40,8 +40,8 @@ def get_image_detector():
     """Lazy load image detector"""
     if 'image' not in models:
         try:
-            from enhanced_image_detector import enhanced_image_detector
-            models['image'] = enhanced_image_detector
+            from final_image_detector import final_image_detector
+            models['image'] = final_image_detector
         except Exception as e:
             print(f"Error loading image detector: {e}")
             return None
@@ -51,8 +51,8 @@ def get_audio_detector():
     """Lazy load audio detector"""
     if 'audio' not in models:
         try:
-            from enhanced_audio_detector import enhanced_audio_detector
-            models['audio'] = enhanced_audio_detector
+            from final_audio_detector import final_audio_detector
+            models['audio'] = final_audio_detector
         except Exception as e:
             print(f"Error loading audio detector: {e}")
             return None
@@ -62,8 +62,8 @@ def get_video_detector():
     """Lazy load video detector"""
     if 'video' not in models:
         try:
-            from enhanced_video_detector import enhanced_video_detector
-            models['video'] = enhanced_video_detector
+            from final_video_detector import final_video_detector
+            models['video'] = final_video_detector
         except Exception as e:
             print(f"Error loading video detector: {e}")
             return None
@@ -73,8 +73,8 @@ def get_text_detector():
     """Lazy load text detector"""
     if 'text' not in models:
         try:
-            from enhanced_text_detector import enhanced_text_detector
-            models['text'] = enhanced_text_detector
+            from final_text_detector import final_text_detector
+            models['text'] = final_text_detector
         except Exception as e:
             print(f"Error loading text detector: {e}")
             return None
@@ -144,8 +144,8 @@ def detect_image():
             # Fallback to mock detection
             result = mock_image_detection(filepath)
         else:
-            # Perform detection
-            result = detector.analyze_image(filepath)
+            # Perform detection using new predict()
+            result = detector.predict(filepath)
         
         # Clean up
         try:
@@ -186,7 +186,7 @@ def detect_audio():
         if detector is None:
             result = mock_audio_detection(filepath)
         else:
-            result = detector.predict(filepath, return_details=True)
+            result = detector.predict(filepath)
         
         # Clean up
         try:
@@ -227,7 +227,7 @@ def detect_video():
         if detector is None:
             result = mock_video_detection(filepath)
         else:
-            result = detector.predict(filepath, return_details=True)
+            result = detector.predict(filepath)
         
         # Clean up
         try:
@@ -262,7 +262,7 @@ def detect_text():
         if detector is None:
             result = mock_text_detection(text)
         else:
-            result = detector.predict(text, return_details=True)
+            result = detector.predict(text)
         
         return jsonify({
             'success': True,
@@ -298,13 +298,13 @@ def detect_auto():
         # Route to appropriate detector
         if file_type == 'image':
             detector = get_image_detector()
-            result = detector.analyze_image(filepath) if detector else mock_image_detection(filepath)
+            result = detector.predict(filepath) if detector else mock_image_detection(filepath)
         elif file_type == 'audio':
             detector = get_audio_detector()
-            result = detector.predict(filepath, return_details=True) if detector else mock_audio_detection(filepath)
+            result = detector.predict(filepath) if detector else mock_audio_detection(filepath)
         elif file_type == 'video':
             detector = get_video_detector()
-            result = detector.predict(filepath, return_details=True) if detector else mock_video_detection(filepath)
+            result = detector.predict(filepath) if detector else mock_video_detection(filepath)
         else:
             return jsonify({'error': 'Unsupported file type'}), 400
         
@@ -474,7 +474,7 @@ if __name__ == '__main__':
     print("  - POST /api/detect/video")
     print("  - POST /api/detect/text")
     print("  - POST /api/detect/auto")
-    print("  - POST /api/query         ← NEW: Query Assistant (YOLOv8 + Gemini)")
+    print("  - POST /api/query         <- NEW: Query Assistant (YOLOv8 + Gemini)")
     print("  - GET  /api/status")
     print("\nDashboard available at: http://localhost:5000")
 

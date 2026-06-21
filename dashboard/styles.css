@@ -374,6 +374,11 @@ body {
     color: var(--success);
 }
 
+.verdict-badge.uncertain {
+    background: rgba(107, 114, 128, 0.1);
+    color: var(--gray-600);
+}
+
 /* Confidence Meter */
 .confidence-meter {
     margin-bottom: 24px;
@@ -599,6 +604,11 @@ body {
 .history-verdict.real {
     background: rgba(16, 185, 129, 0.1);
     color: var(--success);
+}
+
+.history-verdict.uncertain {
+    background: rgba(107, 114, 128, 0.1);
+    color: var(--gray-600);
 }
 
 .history-confidence {

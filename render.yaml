@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: deepguard-ai
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:$PORT api:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
+      - key: GEMINI_API_KEY
+        sync: false
+    autoDeploy: true
