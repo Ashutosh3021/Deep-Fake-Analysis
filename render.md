@@ -19,6 +19,7 @@ First, ensure your repository has all required files:
 - `render.yaml` (already created for infrastructure as code)
 - `Procfile` (alternative for deployment configuration)
 - `requirements.txt` (with all dependencies)
+- `.python-version` (specifies Python 3.10.12 for Render)
 - `backend/api.py` (Flask app)
 - `models/` directory (with detection models)
 - `dashboard/` directory (with frontend files)
