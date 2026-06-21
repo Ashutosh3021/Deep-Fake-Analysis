@@ -4,9 +4,14 @@ services:
     runtime: python
     plan: starter
     pythonVersion: "3.10.12"
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install --cache-dir /opt/render/.cache/pip -r requirements.txt
     startCommand: cd backend && gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:$PORT api:app
     envVars:
       - key: GEMINI_API_KEY
         sync: false
     autoDeploy: true
+    disk:
+      name: pip-cache
+      mountPath: /opt/render/.cache/pip
+      sizeGB: 2
+

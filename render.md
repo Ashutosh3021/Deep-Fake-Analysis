@@ -91,17 +91,22 @@ Once your service is created and environment variables are set, Render will auto
 
 ## Troubleshooting Common Issues
 
-### Issue 1: Build Failures
+### Issue 1: Build Failures (Dependency Resolution Hell)
+
+**Symptoms**:
+- Repeated downloads of multiple torch versions
+- Build times out or exceeds resource limits
+- pip is in an infinite resolution loop
 
 **Possible causes**:
-- Missing dependencies
-- Incompatible Python versions
-- Network issues downloading dependencies
+- Unpinned dependencies (e.g., torch>=2.0.0)
+- Conflicting CUDA library versions
 
 **Solutions**:
+- Use exact version pins for all dependencies (we've done this for you!)
+- Enable pip build cache (we've configured this in render.yaml)
 - Check Render logs for specific error messages
-- Verify `requirements.txt` includes all dependencies
-- Ensure the Python version in your `render.yaml` matches what your code needs
+- Ensure the Python version in your `render.yaml` and `.python-version` matches what your code needs (we're using 3.10.12)
 
 ### Issue 2: Environment Variable Errors
 
