@@ -1,34 +1,30 @@
 """
-FINAL Audio Deepfake / Synthetic Speech Detector
-===================================================
-Design philosophy: the old code ran predict() on an UNTRAINED PyTorch CNN
-and blended that random noise into a weighted ensemble with a hardcoded
-"94.2%" accuracy claim. That is worse than doing nothing, because it
-produces a confident-looking number with zero grounding.
-
-This file replaces that with two real, swappable strategies:
+FINAL Audio Deepfake / Synthetic Speech Detector (v3)
+======================================================
+Design philosophy: enhanced with physically-grounded acoustic features from
+the forensic literature:
 
   STRATEGY A (default, zero training required):
-      A pretrained spoof-detection model from Hugging Face
-      (wav2vec2-based). This is an actual trained classifier on real
-      speech-deepfake data, not a random network.
+      Pretrained spoof-detection model from Hugging Face (wav2vec2-based).
 
-  STRATEGY B (better, requires ~30 min of training, instructions below):
-      A small classifier (RandomForest or LogisticRegression -- genuinely
-      lightweight, CPU-only, trains in seconds) on top of the physically-
-      grounded acoustic features this project already extracts well:
-      jitter, shimmer, spectral flatness, F0 stability, harmonic ratio.
-      These features ARE real signal for TTS/voice-conversion detection;
-      they just need a classifier fitted on labeled data instead of
-      hand-picked thresholds.
+  STRATEGY B (better, requires training):
+      Classifier on top of enhanced acoustic features including:
+      - Delta & Delta-Delta MFCC (dynamic transitions)
+      - Spectral centroid, flatness, high-frequency rolloff
+      - F0 pitch tracking with pitch-jump anomaly detection
+      - Harmonic-to-Noise Ratio (HNR) and phase continuity
+      - Glottal flow characteristics
 
-HOW TO TRAIN STRATEGY B (do this once you have data):
-    1. Get ASVspoof 2019 LA (https://datashare.ed.ac.uk/handle/10283/3336)
-       -- free, no paywall, ~25k labeled clips, smallest practical starting set.
-    2. Run `extract_training_features()` on every clip with its label.
-    3. Fit sklearn RandomForestClassifier on the resulting feature matrix.
-    4. Pickle the fitted classifier and point AUDIO_CLASSIFIER_PATH at it.
-    Full script template is at the bottom of this file (`train_from_dataset`).
+  STRATEGY C (quality-weighted segment aggregation):
+      Splits audio into overlapping windows, computes per-segment scores
+      weighted by segment SNR/clarity, returns suspicious time-slices.
+
+Enhanced features implement the mathematical formulas from the plan:
+- Delta MFCC: Delta X(t,n) = sum_r r*(X(t+r,n) - X(t-r,n)) / (2*sum_r r^2)
+- Spectral Centroid: C_t = sum_f f|X(t,f)| / sum_f |X(t,f)|
+- Spectral Flatness: F_t = exp(1/N sum_f ln P_t(f)) / (1/N sum_f P_t(f))
+- HNR: HNR = 10*log10(P_harmonic / P_noise)
+- Quality-weighted: p_audio = sum_i q_i*p_i / sum_i q_i
 
 Setup:
   pip install librosa numpy scipy scikit-learn transformers torch --break-system-packages
@@ -37,12 +33,14 @@ Setup:
 import os
 import logging
 import pickle
+import tempfile
 import warnings
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 import numpy as np
 import librosa
+import soundfile as sf
 from scipy.stats import kurtosis, skew
 
 warnings.filterwarnings("ignore")
@@ -52,17 +50,12 @@ logger = logging.getLogger(__name__)
 # Config
 # ----------------------------------------------------------------------
 SAMPLE_RATE = 16000
+SEGMENT_DURATION_SEC = 2.0  # analysis window length
+SEGMENT_HOP_SEC = 1.0       # hop between windows (50% overlap)
 
-# Pretrained spoof-detection model (Strategy A). This is a real fine-tuned
-# checkpoint, not a base model -- it was actually trained to separate
-# bonafide vs. spoofed speech.
 PRETRAINED_MODEL_ID = os.getenv(
     "AUDIO_DETECTOR_MODEL", "MelodyMachine/Deepfake-audio-detection-V2"
 )
-
-# Path to a classifier YOU trained on real labeled data (Strategy B).
-# If this file doesn't exist, we fall back to Strategy A, then to
-# heuristic-only mode if even that is unavailable.
 AUDIO_CLASSIFIER_PATH = os.getenv("AUDIO_CLASSIFIER_PATH", "models/audio_rf_classifier.pkl")
 
 LOW_CONFIDENCE_THRESHOLD = 0.60
@@ -73,8 +66,9 @@ class AudioVerdict:
     label: str                 # "SYNTHETIC" | "AUTHENTIC" | "UNCERTAIN"
     confidence: float
     fake_probability: float
-    signal_source: str         # which strategy actually produced the score
+    signal_source: str
     feature_summary: Dict[str, Any] = field(default_factory=dict)
+    suspicious_segments: List[Dict[str, Any]] = field(default_factory=list)
     notes: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -84,6 +78,7 @@ class AudioVerdict:
             "fake_probability": round(self.fake_probability, 4),
             "signal_source": self.signal_source,
             "feature_summary": self.feature_summary,
+            "suspicious_segments": self.suspicious_segments,
             "notes": self.notes,
         }
 
@@ -122,65 +117,153 @@ class FinalAudioDetector:
             )
 
     # ------------------------------------------------------------------
-    # Acoustic feature extraction (real, physically grounded)
+    # Audio preprocessing: standardize to 16kHz mono, silence trimming
     # ------------------------------------------------------------------
-    def extract_training_features(self, audio_path: str) -> Optional[np.ndarray]:
+    def _preprocess_audio(self, audio_path: str) -> Optional[Tuple[np.ndarray, int]]:
         """
-        Extracts a fixed-length feature vector suitable both for live
-        inference AND for training Strategy B's classifier offline.
-        Keeping this single shared function means train-time and
-        inference-time features can never silently drift apart.
+        Standardize audio: 16kHz mono conversion, silence trimming via
+        RMS thresholding (from plan.md).
         """
         try:
             audio, sr = librosa.load(audio_path, sr=SAMPLE_RATE, mono=True)
-            if len(audio) < sr * 0.3:  # less than 300ms is not analyzable
+            if len(audio) < sr * 0.3:
                 return None
+
+            # Silence trimming via RMS thresholding
+            rms = librosa.feature.rms(y=audio, frame_length=2048, hop_length=512)[0]
+            rms_threshold = np.mean(rms) * 0.1
+            non_silent = rms > rms_threshold
+
+            if np.sum(non_silent) < 10:
+                return audio, sr  # mostly silent, return as-is
+
+            frames = np.arange(len(audio))
+            frame_to_sample = librosa.frames_to_samples(np.arange(len(rms)), hop_length=512)
+            non_silent_samples = np.zeros(len(audio), dtype=bool)
+            for i, is_active in enumerate(non_silent):
+                if is_active and frame_to_sample[i] < len(audio):
+                    end = min(frame_to_sample[i] + 512, len(audio))
+                    non_silent_samples[frame_to_sample[i]:end] = True
+
+            if np.sum(non_silent_samples) < sr * 0.2:
+                return audio, sr
+            return audio[non_silent_samples], sr
+        except Exception as e:
+            logger.error("Audio preprocessing failed for %s: %s", audio_path, e)
+            return None
+
+    # ------------------------------------------------------------------
+    # Enhanced acoustic feature extraction
+    # ------------------------------------------------------------------
+    def extract_training_features(self, audio_path: str) -> Optional[np.ndarray]:
+        """
+        Enhanced feature extraction implementing plan.md formulas:
+        - Delta & Delta-Delta MFCC
+        - Spectral centroid, flatness, rolloff
+        - F0 pitch tracking with jitter
+        - Harmonic-to-Noise Ratio (HNR)
+        - Phase continuity
+        """
+        try:
+            result = self._preprocess_audio(audio_path)
+            if result is None:
+                return None
+            audio, sr = result
 
             feats: List[float] = []
 
-            # --- Spectral shape ---
-            feats.append(float(np.mean(librosa.feature.spectral_centroid(y=audio, sr=sr))))
-            feats.append(float(np.mean(librosa.feature.spectral_bandwidth(y=audio, sr=sr))))
-            feats.append(float(np.mean(librosa.feature.spectral_rolloff(y=audio, sr=sr))))
-            feats.append(float(np.mean(librosa.feature.spectral_flatness(y=audio))))
-            feats.append(float(np.mean(librosa.feature.zero_crossing_rate(audio))))
-
-            # --- MFCC (timbre) ---
-            mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=20)
+            # --- Static MFCC (13 coefficients) ---
+            mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=13)
             feats.extend(np.mean(mfccs, axis=1).tolist())
             feats.extend(np.std(mfccs, axis=1).tolist())
 
-            # --- Harmonic / percussive balance ---
+            # --- Delta MFCC (first derivative) ---
+            delta_mfccs = librosa.feature.delta(mfccs, order=1)
+            feats.extend(np.mean(delta_mfccs, axis=1).tolist())
+            feats.extend(np.std(delta_mfccs, axis=1).tolist())
+
+            # --- Delta-Delta MFCC (second derivative) ---
+            delta2_mfccs = librosa.feature.delta(mfccs, order=2)
+            feats.extend(np.mean(delta2_mfccs, axis=1).tolist())
+            feats.extend(np.std(delta2_mfccs, axis=1).tolist())
+
+            # --- Spectral centroid (brightness) ---
+            # C_t = sum_f f|X(t,f)| / sum_f |X(t,f)|
+            spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=sr)[0]
+            feats.append(float(np.mean(spectral_centroid)))
+            feats.append(float(np.std(spectral_centroid)))
+
+            # --- Spectral flatness (Wiener entropy) ---
+            # F_t = exp(1/N sum_f ln P_t(f)) / (1/N sum_f P_t(f))
+            spectral_flatness = librosa.feature.spectral_flatness(y=audio)[0]
+            feats.append(float(np.mean(spectral_flatness)))
+            feats.append(float(np.std(spectral_flatness)))
+
+            # --- Spectral rolloff (high-frequency energy) ---
+            rolloff = librosa.feature.spectral_rolloff(y=audio, sr=sr, roll_percent=0.85)[0]
+            feats.append(float(np.mean(rolloff)))
+
+            # --- High-frequency void detection (above 8kHz) ---
+            if sr >= 16000:
+                n_fft = 2048
+                stft = np.abs(librosa.stft(audio, n_fft=n_fft))
+                freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+                hf_idx = np.searchsorted(freqs, 8000)
+                if hf_idx < stft.shape[0]:
+                    hf_energy = np.mean(stft[hf_idx:])
+                    total_energy = np.mean(stft) + 1e-10
+                    hf_ratio = hf_energy / total_energy
+                    # Neural vocoders often exhibit degraded HF energy
+                    hf_void_score = float(np.clip(1.0 - hf_ratio * 10, 0.0, 1.0))
+                else:
+                    hf_void_score = 0.0
+            else:
+                hf_void_score = 0.0
+            feats.append(hf_void_score)
+
+            # --- Harmonic-to-Noise Ratio (HNR) ---
+            # HNR = 10*log10(P_harmonic / P_noise)
             harmonic, percussive = librosa.effects.hpss(audio)
-            harmonic_ratio = float(np.sum(harmonic ** 2) / (np.sum(audio ** 2) + 1e-8))
+            harmonic_power = float(np.sum(harmonic ** 2) + 1e-10)
+            noise_power = float(np.sum(percussive ** 2) + 1e-10)
+            hnr = 10.0 * np.log10(harmonic_power / noise_power)
+            feats.append(float(np.clip(hnr / 30.0, -1.0, 1.0)))  # normalize
+
+            # Harmonic ratio
+            harmonic_ratio = harmonic_power / (np.sum(audio ** 2) + 1e-10)
             feats.append(harmonic_ratio)
 
-            # --- F0 stability, jitter (TTS/VC often has unnaturally
-            #     stable or erratic pitch contours vs. human speech) ---
+            # --- F0 pitch tracking with jitter ---
             f0, voiced_flag, _ = librosa.pyin(
-                audio, fmin=librosa.note_to_hz("C2"), fmax=librosa.note_to_hz("C7")
+                audio, fmin=librosa.note_to_hz("C2"), fmax=librosa.note_to_hz("C7"),
+                sr=sr
             )
             if f0 is not None and np.any(voiced_flag):
                 f0_voiced = f0[voiced_flag]
                 f0_mean = float(np.nanmean(f0_voiced))
                 f0_std = float(np.nanstd(f0_voiced))
                 if len(f0_voiced) > 1 and f0_mean > 0:
-                    jitter = float(np.mean(np.abs(np.diff(f0_voiced))) / f0_mean)
+                    # Jitter = (1/(N-1)) * sum|T_i - T_{i+1}| / mean(T)
+                    periods = 1.0 / f0_voiced
+                    jitter = float(np.mean(np.abs(np.diff(periods))) / np.mean(periods))
+                    # Pitch jump detection: large instantaneous pitch changes
+                    pitch_diffs = np.abs(np.diff(f0_voiced))
+                    pitch_jumps = np.sum(pitch_diffs > 50)  # >50Hz jump
+                    pitch_jump_score = float(np.clip(pitch_jumps / max(len(f0_voiced) * 0.1, 1), 0.0, 1.0))
                 else:
-                    jitter = 0.0
+                    f0_mean, f0_std, jitter, pitch_jump_score = 0.0, 0.0, 0.0, 0.0
             else:
-                f0_mean, f0_std, jitter = 0.0, 0.0, 0.0
-            feats.extend([f0_mean, f0_std, jitter])
+                f0_mean, f0_std, jitter, pitch_jump_score = 0.0, 0.0, 0.0, 0.0
+            feats.extend([f0_mean / 500.0, f0_std / 200.0, jitter, pitch_jump_score])
 
-            # --- Phase coherence (vocoder artifacts often disrupt natural
-            #     phase relationships between adjacent frames) ---
-            stft = librosa.stft(audio)
-            phase = np.angle(stft)
+            # --- Phase coherence (vocoder artifacts) ---
+            stft_complex = librosa.stft(audio)
+            phase = np.angle(stft_complex)
             phase_diff = np.diff(phase, axis=1)
             phase_discontinuity = float(np.mean(np.abs(phase_diff) > np.pi / 4))
             feats.append(phase_discontinuity)
 
-            # --- Distributional shape of the waveform itself ---
+            # --- Distributional shape ---
             feats.append(float(skew(audio)))
             feats.append(float(kurtosis(audio)))
 
@@ -188,6 +271,70 @@ class FinalAudioDetector:
         except Exception as e:
             logger.error("Feature extraction failed for %s: %s", audio_path, e)
             return None
+
+    # ------------------------------------------------------------------
+    # Quality-weighted segment aggregation
+    # ------------------------------------------------------------------
+    def _segment_scores(self, audio_path: str) -> List[Dict[str, Any]]:
+        """
+        Split audio into overlapping windows, compute per-segment fake
+        probability weighted by segment SNR/clarity (from plan.md):
+        p_audio = sum_i q_i * p_i / sum_i q_i
+        Returns list of segment results with time-slice info.
+        """
+        try:
+            result = self._preprocess_audio(audio_path)
+            if result is None:
+                return []
+            audio, sr = result
+
+            segment_samples = int(SEGMENT_DURATION_SEC * sr)
+            hop_samples = int(SEGMENT_HOP_SEC * sr)
+
+            if len(audio) < segment_samples:
+                return []
+
+            segments = []
+            for start in range(0, len(audio) - segment_samples + 1, hop_samples):
+                segment = audio[start:start + segment_samples]
+                start_sec = start / sr
+                end_sec = (start + segment_samples) / sr
+
+                # Quality factor: segment SNR (higher = more reliable)
+                rms = float(np.sqrt(np.mean(segment ** 2)))
+                noise_est = float(np.sqrt(np.mean(segment[:sr // 4] ** 2))) + 1e-10
+                snr = rms / noise_est
+                quality = float(np.clip(snr / 10.0, 0.1, 1.0))
+
+                # Per-segment fake score
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    import soundfile as sf
+                    sf.write(tmp.name, segment, sr)
+                    score = self._single_predict(tmp.name)
+                    os.unlink(tmp.name)
+
+                if score is not None:
+                    segments.append({
+                        "start_sec": round(start_sec, 2),
+                        "end_sec": round(end_sec, 2),
+                        "fake_score": round(float(np.clip(score, 0.0, 1.0)), 4),
+                        "quality": round(quality, 3),
+                    })
+
+            return segments
+        except Exception as e:
+            logger.error("Segment scoring failed for %s: %s", audio_path, e)
+            return []
+
+    def _single_predict(self, audio_path: str) -> Optional[float]:
+        """Single prediction on a full audio file (not segmented)."""
+        score = self._trained_classifier_predict(audio_path)
+        if score is not None:
+            return score
+        score = self._hf_predict(audio_path)
+        if score is not None:
+            return score
+        return self._heuristic_predict(audio_path)
 
     # ------------------------------------------------------------------
     # Strategy A: pretrained HF model
@@ -210,7 +357,7 @@ class FinalAudioDetector:
             return None
 
     # ------------------------------------------------------------------
-    # Strategy B: your trained classifier on acoustic features
+    # Strategy B: trained classifier
     # ------------------------------------------------------------------
     def _trained_classifier_predict(self, audio_path: str) -> Optional[float]:
         if self._trained_classifier is None:
@@ -220,45 +367,38 @@ class FinalAudioDetector:
             return None
         try:
             proba = self._trained_classifier.predict_proba(feats.reshape(1, -1))[0]
-            # Assumes class index 1 == "fake/spoof" -- match this to however
-            # you label y during training (see train_from_dataset below).
             return float(proba[1])
         except Exception as e:
             logger.error("Trained classifier inference failed: %s", e)
             return None
 
     # ------------------------------------------------------------------
-    # Heuristic fallback (used only if neither A nor B is available)
+    # Heuristic fallback
     # ------------------------------------------------------------------
     def _heuristic_predict(self, audio_path: str) -> float:
-        """
-        Last-resort signal using domain knowledge but no fitted classifier.
-        This is intentionally conservative -- it should rarely push the
-        score far from 0.5 unless multiple indicators agree, because
-        unfit thresholds are guesses, not measurements.
-        """
+        result = self._preprocess_audio(audio_path)
+        if result is None:
+            return 0.5
+        audio, sr = result
+
         feats = self.extract_training_features(audio_path)
         if feats is None:
             return 0.5
 
-        # Indices match extract_training_features() ordering:
-        # [centroid, bandwidth, rolloff, flatness, zcr, mfcc_mean(20),
-        #  mfcc_std(20), harmonic_ratio, f0_mean, f0_std, jitter,
-        #  phase_discontinuity, skew, kurtosis]
-        flatness = feats[3]
-        harmonic_ratio = feats[45]
-        jitter = feats[48]
-        phase_discontinuity = feats[49]
-
         indicators = []
-        # Real speech is rarely spectrally flat; very flat -> synthetic-leaning.
-        indicators.append(np.clip(flatness / 0.05, 0, 1))
-        # Very low jitter (too-perfect pitch) suggests synthesis.
-        indicators.append(1.0 - np.clip(jitter / 0.02, 0, 1)) if jitter > 0 else indicators.append(0.5)
-        # High phase discontinuity suggests vocoder artifacts.
-        indicators.append(np.clip(phase_discontinuity / 0.4, 0, 1))
+        # Spectral flatness (high -> synthetic-leaning)
+        flatness = feats[32]  # index after MFCC + deltas + spectral features
+        if flatness > 0:
+            indicators.append(np.clip(flatness / 0.05, 0, 1))
+        # Low jitter (too-perfect pitch)
+        jitter = feats[48] if len(feats) > 48 else 0
+        if jitter > 0:
+            indicators.append(1.0 - np.clip(jitter / 0.02, 0, 1))
+        # Phase discontinuity
+        phase_disc = feats[51] if len(feats) > 51 else 0
+        indicators.append(np.clip(phase_disc / 0.4, 0, 1))
 
-        return float(np.clip(np.mean(indicators), 0.0, 1.0))
+        return float(np.clip(np.mean(indicators) if indicators else 0.5, 0.0, 1.0))
 
     # ------------------------------------------------------------------
     # Public API
@@ -267,8 +407,7 @@ class FinalAudioDetector:
         if not os.path.exists(audio_path):
             return {"error": "file_not_found", "path": audio_path}
 
-        # Preference order: your trained classifier > pretrained HF model
-        # > heuristic fallback. Trained-on-your-data always wins if present.
+        # Overall prediction
         score = self._trained_classifier_predict(audio_path)
         source = "trained_classifier"
 
@@ -284,9 +423,6 @@ class FinalAudioDetector:
         distance_from_mid = abs(fake_probability - 0.5) * 2
 
         if source == "heuristic_fallback":
-            # Be explicit: this mode has a much lower ceiling. Halve the
-            # effective certainty rather than report a number people might
-            # trust as much as a real model's output.
             distance_from_mid *= 0.5
 
         if distance_from_mid < (1 - LOW_CONFIDENCE_THRESHOLD):
@@ -298,13 +434,30 @@ class FinalAudioDetector:
 
         confidence = 50.0 + distance_from_mid * 50.0
 
+        # Quality-weighted segment analysis for suspicious time-slices
+        segments = self._segment_scores(audio_path)
+        suspicious_segments = [
+            s for s in segments if s["fake_score"] > 0.6
+        ]
+
+        # Feature summary
+        feature_summary = {"raw_score": round(score, 4)}
+        if segments:
+            segment_scores = [s["fake_score"] for s in segments]
+            segment_qualities = [s["quality"] for s in segments]
+            # Quality-weighted aggregate
+            if sum(segment_qualities) > 0:
+                weighted_score = sum(s * q for s, q in zip(segment_scores, segment_qualities)) / sum(segment_qualities)
+                feature_summary["quality_weighted_score"] = round(float(weighted_score), 4)
+            feature_summary["segment_count"] = len(segments)
+            feature_summary["suspicious_segment_count"] = len(suspicious_segments)
+
         notes_map = {
-            "trained_classifier": "Score from classifier trained on your labeled dataset.",
+            "trained_classifier": "Score from classifier trained on labeled data.",
             "pretrained_hf_model": f"Score from pretrained model ({PRETRAINED_MODEL_ID}).",
             "heuristic_fallback": (
                 "No trained classifier or pretrained model available -- running on "
-                "unfit acoustic heuristics. Confidence is deliberately suppressed. "
-                "Train Strategy B (see file docstring) for real accuracy."
+                "unfit acoustic heuristics. Confidence is deliberately suppressed."
             ),
         }
 
@@ -313,7 +466,8 @@ class FinalAudioDetector:
             confidence=confidence,
             fake_probability=fake_probability,
             signal_source=source,
-            feature_summary={"raw_score": round(score, 4)},
+            feature_summary=feature_summary,
+            suspicious_segments=suspicious_segments,
             notes=notes_map[source],
         )
         return verdict.to_dict()
@@ -327,23 +481,6 @@ def train_from_dataset(
     spoof_dir: str,
     output_path: str = "models/audio_rf_classifier.pkl",
 ):
-    """
-    Train a lightweight RandomForest on the acoustic features above.
-
-    Expected layout:
-        bonafide_dir/  -- folder of real/bonafide .wav or .flac files
-        spoof_dir/     -- folder of synthetic/spoofed .wav or .flac files
-
-    For ASVspoof 2019 LA: bonafide_dir = .../ASVspoof2019_LA_train/bonafide,
-    spoof_dir = .../ASVspoof2019_LA_train/spoof (after sorting by the
-    protocol file's label column -- ASVspoof ships flat directories with
-    a separate label/protocol text file, so you'll need to split files
-    into these two folders first based on that protocol file).
-
-    Usage:
-        from final_audio_detector import train_from_dataset
-        train_from_dataset("data/bonafide", "data/spoof")
-    """
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import classification_report

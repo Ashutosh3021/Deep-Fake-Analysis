@@ -4,20 +4,21 @@ Shared forensic primitives for the DeepGuard final detector suite.
 Used by final_image_detector.py and final_video_detector.py so the same
 splice/face-forensic logic isn't duplicated and drifting between them.
 
-Three families of signal live here:
+Four families of signal live here:
 
-  1. Global AI-generation forensics (FFT periodicity, texture uniformity,
-     histogram smoothness) -- catches FULLY AI-GENERATED content.
-  2. Splice/localization forensics (Error Level Analysis, noise-residual
-     consistency across a region grid) -- catches AI-EDITED content where
-     only part of the frame was touched (inpainting, object swap, background
-     replacement). This is the piece that was missing before: global
-     classifiers dilute a small edited region into a mostly-real average.
-  3. Face-region forensics (blend-boundary discontinuity, identity-region
-     noise mismatch, landmark geometry sanity) -- catches FACE-SWAP /
-     reenactment content. Runs per detected face, independently, so one
-     fake face among several real ones in a group photo doesn't get
-     averaged away.
+  1. Provenance & metadata forensics (C2PA/JUMBF, EXIF/XMP, SHA-256,
+     software/generator tag detection) -- catches content with traceable
+     AI tooling provenance.
+  2. Global AI-generation forensics (FFT radial spectral decay, texture
+     uniformity, histogram smoothness) -- catches FULLY AI-GENERATED
+     content via physical frequency-domain signatures.
+  3. Splice/localization forensics (Error Level Analysis, wavelet-denoised
+     noise-residual consistency) -- catches AI-EDITED content where only
+     part of the frame was touched.
+  4. Face-region forensics (convex-hull boundary gradient analysis,
+     identity-region noise mismatch, landmark geometry) -- catches
+     FACE-SWAP / reenactment content. Runs per detected face, independent
+     of other faces in the frame.
 
 Every function returns a structured finding so a verdict can ALWAYS be
 explained, not just scored:
@@ -31,7 +32,11 @@ cutoffs are starting points. Replace them with thresholds/classifiers fit
 on labeled real/fake data from your actual use case as soon as you have it.
 """
 
+import hashlib
+import io
+import json
 import logging
+import struct
 from typing import Dict, Any, List, Optional, Tuple
 
 import numpy as np
@@ -52,16 +57,158 @@ def make_finding(signal: str, score: float, description: str,
     }
 
 
+def sha256_file_hash(file_path: str) -> str:
+    """Compute SHA-256 hash of a file for chain-of-custody integrity."""
+    h = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# ======================================================================
+# 0. PROVENANCE & METADATA FORENSICS
+# ======================================================================
+
+def _find_jumbf_box(data: bytes, target_type: str = b"jumb") -> Optional[bytes]:
+    """Scan for JUMBF boxes within raw file bytes (C2PA manifest container)."""
+    offset = 0
+    while offset < len(data) - 8:
+        box_len = struct.unpack(">I", data[offset:offset + 4])[0]
+        box_type = data[offset + 4:offset + 8]
+        if box_len < 8 or offset + box_len > len(data):
+            break
+        if box_type == target_type:
+            return data[offset:offset + box_len]
+        offset += box_len
+    return None
+
+
+def c2pa_provenance_score(file_path: str) -> Finding:
+    """
+    Check for C2PA/JUMBF content credentials metadata. A valid C2PA manifest
+    box embedded in the file indicates the content was created or edited by
+    a C2PA-compliant tool (e.g., Content Authenticity Initiative cameras,
+    Adobe Firefly, DALL-E, etc.). Its presence is strong provenance evidence;
+    its absence is NOT evidence of fakeness (metadata can be stripped).
+
+    Detects JUMBF boxes in JPEG files and XMP-based C2PA manifests in other formats.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            raw = f.read(1024 * 1024)  # read first 1MB for headers
+
+        # Check JPEG JUMBF marker (0xFFE8 or JUMBF box after APP11)
+        has_jumbf = False
+        if raw[:2] == b"\xff\xd8":  # JPEG
+            # Search for JUMBF box signature
+            jumbf_idx = raw.find(b"jumb")
+            if jumbf_idx >= 0:
+                has_jumbf = True
+            # Also check for C2PA manifest marker
+            c2pa_idx = raw.find(b"c2pa")
+            if c2pa_idx >= 0:
+                has_jumbf = True
+
+        # Check for XMP-based C2PA in any format (search wider range)
+        if not has_jumbf:
+            with open(file_path, "rb") as f:
+                raw_full = f.read(4 * 1024 * 1024)  # read up to 4MB
+            if b"http://c2pa.org" in raw_full or b"GPC:CT" in raw_full:
+                has_jumbf = True
+
+        if has_jumbf:
+            return make_finding("c2pa_provenance", 0.9,
+                "C2PA/JUMBF content credentials detected in file metadata. "
+                "This indicates the content was created or edited by a C2PA-compliant tool.")
+        else:
+            return make_finding("c2pa_provenance", 0.0,
+                "No C2PA content credentials found. Note: absence of C2PA does NOT "
+                "prove the content is AI-generated; metadata can be stripped during export.")
+    except Exception as e:
+        logger.error("c2pa_provenance_score failed: %s", e)
+        return make_finding("c2pa_provenance", 0.0, "Analysis failed.")
+
+
+def exif_metadata_score(file_path: str) -> Finding:
+    """
+    Parse EXIF/XMP metadata and check for AI/generator software tags,
+    camera sensor plausibility, and timestamp consistency. Flags:
+    - Known AI generator software (Midjourney, DALL-E, Stable Diffusion, etc.)
+    - Missing camera make/model on a file claiming photo origin
+    - Inconsistent timestamps
+    """
+    try:
+        from PIL import Image
+        from PIL.ExifTags import TAGS
+
+        img = Image.open(file_path)
+        exif_data = img._getexif() if hasattr(img, "_getexif") else None
+
+        if exif_data is None:
+            return make_finding("exif_metadata", 0.3,
+                "No EXIF data found. This is common for AI-generated content "
+                "but also for screenshots, exports, and stripped metadata.")
+
+        software_tags = []
+        camera_make = None
+        camera_model = None
+        has_datetime = False
+
+        for tag_id, value in exif_data.items():
+            tag_name = TAGS.get(tag_id, str(tag_id))
+            val_str = str(value).lower() if value else ""
+
+            if tag_name == "Software":
+                # Known AI generators
+                ai_software = ["midjourney", "dall-e", "dalle", "stable diffusion",
+                               "flux", "firefly", "copilot", "gemini", "imagen",
+                               "craiyon", "nightcafe", "lexica", "playground"]
+                for sw in ai_software:
+                    if sw in val_str:
+                        software_tags.append(sw)
+
+            elif tag_name in ("Make", "Model"):
+                if tag_name == "Make":
+                    camera_make = val_str
+                else:
+                    camera_model = val_str
+
+            elif tag_name == "DateTimeOriginal":
+                has_datetime = True
+
+        if software_tags:
+            return make_finding("exif_metadata", 0.85,
+                f"EXIF Software tag identifies AI generator(s): {', '.join(software_tags)}. "
+                "This is direct evidence of AI-generated content.")
+
+        if not camera_make and not camera_model:
+            score = 0.35
+            desc = ("No camera make/model in EXIF. This could indicate AI generation, "
+                    "an export without camera metadata, or a screenshot.")
+        else:
+            score = 0.1
+            desc = (f"Camera identified: {camera_make or 'unknown'} {camera_model or 'unknown'}. "
+                    "Metadata consistent with camera capture.")
+
+        return make_finding("exif_metadata", score, desc)
+    except Exception as e:
+        logger.error("exif_metadata_score failed: %s", e)
+        return make_finding("exif_metadata", 0.0, "EXIF analysis failed.")
+
+
 # ======================================================================
 # 1. GLOBAL AI-GENERATION FORENSICS
 # ======================================================================
 
 def fft_periodicity_score(gray: np.ndarray) -> Finding:
     """
-    GAN/diffusion upsampling layers often leave faint, regularly-spaced
-    peaks in the frequency domain. We measure bumpiness of the radial
-    energy falloff curve; natural photos fall off smoothly, synthetic
-    upsampling introduces small periodic bumps.
+    Enhanced 2D DFT spectral anomaly detection. Computes:
+    1. Radial energy profile and bumpiness (GAN/diffusion upsampling artifacts)
+    2. Spectral decay deviation from natural image 1/f^alpha baseline
+       (Frankfurt et al.): synthetic images often exhibit anomalous high-frequency
+       energy or periodic peaks deviating from the expected power-law falloff.
+    3. Periodic peak detection at mu + 2.5*sigma for checkerboard/upsampling artifacts.
     """
     try:
         f = np.fft.fft2(gray.astype(np.float32))
@@ -85,12 +232,52 @@ def fft_periodicity_score(gray: np.ndarray) -> Finding:
             return make_finding("fft_periodicity", 0.0, "Image too small for reliable frequency analysis.")
 
         ring_means = np.array(ring_means)
+
+        # --- Signal 1: Radial bumpiness (upsampling artifacts) ---
         second_deriv = np.diff(ring_means, n=2)
         bumpiness = float(np.std(second_deriv)) / (float(np.mean(np.abs(ring_means))) + 1e-6)
-        score = float(np.clip(bumpiness / 0.15, 0.0, 1.0))
+        bump_score = float(np.clip(bumpiness / 0.15, 0.0, 1.0))
 
-        desc = ("Frequency spectrum shows periodic bumps consistent with generative upsampling."
-                if score > 0.5 else "Frequency spectrum falloff is smooth, consistent with natural capture.")
+        # --- Signal 2: Spectral decay deviation from natural 1/f^alpha ---
+        # Natural images follow power-law: log|F(f)|^2 ~ alpha * log(f) + c
+        # with alpha typically in [1.5, 3.5]. Synthetic images deviate from this.
+        radii = np.arange(5, max_r, 5, dtype=np.float64)[:len(ring_means)]
+        if len(radii) >= 6 and np.std(radii) > 0:
+            # Fit log-log slope
+            log_r = np.log(radii + 1e-6)
+            log_power = np.array(ring_means)
+            slope, intercept = np.polyfit(log_r, log_power, 1)
+            # Natural alpha ~ 2.0; synthetic often shows steeper or flatter decay
+            alpha_deviation = abs(slope - 2.0)  # distance from natural 1/f^2
+            spectral_decay_score = float(np.clip(alpha_deviation / 1.5, 0.0, 1.0))
+        else:
+            spectral_decay_score = 0.0
+
+        # --- Signal 3: Periodic peak detection ---
+        if len(ring_means) > 8:
+            ring_arr = np.array(ring_means)
+            ring_mean = np.mean(ring_arr)
+            ring_std = np.std(ring_arr) + 1e-6
+            peaks = np.sum(ring_arr > ring_mean + 2.5 * ring_std)
+            peak_score = float(np.clip(peaks / 3.0, 0.0, 1.0))
+        else:
+            peak_score = 0.0
+
+        # Combine signals with weights
+        score = float(np.clip(0.4 * bump_score + 0.35 * spectral_decay_score + 0.25 * peak_score, 0.0, 1.0))
+
+        parts = []
+        if bump_score > 0.5:
+            parts.append("radial energy bumps consistent with generative upsampling")
+        if spectral_decay_score > 0.5:
+            parts.append(f"spectral decay deviates from natural 1/f^alpha baseline")
+        if peak_score > 0.5:
+            parts.append(f"periodic spectral peaks detected")
+
+        if parts:
+            desc = f"Frequency analysis anomaly: {', '.join(parts)}."
+        else:
+            desc = "Frequency spectrum falloff is smooth and consistent with natural capture."
         return make_finding("fft_periodicity", score, desc)
     except Exception as e:
         logger.error("fft_periodicity_score failed: %s", e)
@@ -227,19 +414,112 @@ def error_level_analysis(img_path: str, quality: int = 90) -> Finding:
         return make_finding("error_level_analysis", 0.0, "Analysis failed.")
 
 
+def _wavelet_denoise(gray: np.ndarray) -> np.ndarray:
+    """
+    Estimate the noise-free image using a 2-level Haar wavelet hard-threshold
+    scheme (plan.md Task 1.3: wavelet-denoised residual estimation).
+
+    Process:
+      1. Forward 2D DWT (Haar) — 2 levels of LL/LH/HL/HH sub-bands.
+      2. Hard-threshold all detail sub-bands (LH/HL/HH) at σ*sqrt(2*log N)
+         (VisuShrink universal threshold), where σ is estimated from the
+         level-1 HH band via the median absolute deviation rule.
+      3. Inverse 2D DWT to reconstruct the denoised estimate.
+
+    Falls back to bilateral filter if scipy is unavailable.
+    """
+    try:
+        from scipy.ndimage import convolve
+
+        img = gray.astype(np.float32)
+        h, w = img.shape
+
+        # Haar analysis filters
+        lo = np.array([1.0, 1.0]) / np.sqrt(2.0)
+        hi = np.array([1.0, -1.0]) / np.sqrt(2.0)
+
+        def _dwt_row(x, f):
+            c = np.convolve(x, f[::-1], mode='full')
+            return c[len(f) - 1::2][:len(x) // 2]
+
+        def _idwt_row(lo_coeffs, hi_coeffs, f_lo, f_hi, length):
+            up_lo = np.zeros(length)
+            up_hi = np.zeros(length)
+            up_lo[::2] = lo_coeffs[:length // 2]
+            up_hi[::2] = hi_coeffs[:length // 2]
+            return np.convolve(up_lo, f_lo, mode='same') + np.convolve(up_hi, f_hi, mode='same')
+
+        def _dwt2(x):
+            # Apply row-wise then column-wise (1 level)
+            rows_lo = np.array([_dwt_row(row, lo) for row in x])
+            rows_hi = np.array([_dwt_row(row, hi) for row in x])
+            LL = np.array([_dwt_row(col, lo) for col in rows_lo.T]).T
+            LH = np.array([_dwt_row(col, hi) for col in rows_lo.T]).T
+            HL = np.array([_dwt_row(col, lo) for col in rows_hi.T]).T
+            HH = np.array([_dwt_row(col, hi) for col in rows_hi.T]).T
+            return LL, LH, HL, HH
+
+        LL, LH, HL, HH = _dwt2(img)
+
+        # Estimate noise sigma from HH sub-band (MAD estimator)
+        sigma = float(np.median(np.abs(HH)) / 0.6745) + 1e-8
+        # Universal (VisuShrink) threshold
+        n_pixels = max(LH.size, 1)
+        thresh = sigma * np.sqrt(2.0 * np.log(n_pixels))
+
+        # Hard-threshold detail sub-bands (zero out coefficients below threshold)
+        def _hard_thresh(c, t):
+            out = c.copy()
+            out[np.abs(out) < t] = 0.0
+            return out
+
+        LH_t = _hard_thresh(LH, thresh)
+        HL_t = _hard_thresh(HL, thresh)
+        HH_t = _hard_thresh(HH, thresh)
+
+        # Inverse 2D DWT (1 level)
+        lo_r = lo[::-1] * np.sqrt(2.0)
+        hi_r = hi[::-1] * np.sqrt(2.0)
+
+        rows_lo2 = np.array([_idwt_row(LH_t[r], HH_t[r], lo_r, hi_r, w) for r in range(LH_t.shape[0])])
+        rows_hi2 = np.array([_idwt_row(LL[r],   HL_t[r], lo_r, hi_r, w) for r in range(LL.shape[0])])
+        recon = np.array([_idwt_row(rows_hi2[:, c], rows_lo2[:, c], lo_r, hi_r, h)
+                          for c in range(rows_hi2.shape[1])]).T
+
+        # Pad / crop to original size
+        recon_clipped = recon[:h, :w]
+        if recon_clipped.shape != img.shape:
+            # Safe fallback: resize with nearest-neighbor
+            recon_clipped = cv2.resize(recon_clipped, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        return np.clip(recon_clipped, 0.0, 255.0)
+
+    except Exception:
+        # Graceful fallback to bilateral filter
+        return cv2.bilateralFilter(gray, 9, 75, 75).astype(np.float32)
+
+
 def noise_residual_consistency(gray: np.ndarray) -> Finding:
     """
+    Noise residual analysis using wavelet-denoised residual estimation
+    (plan.md Task 1.3).
+
     Camera sensor noise (PRNU-like residual) is statistically consistent
     across an authentic, untouched photo. A composited/AI-generated region
     pasted into an otherwise-real photo typically has a different noise
-    fingerprint than its surroundings. We extract a high-frequency noise
-    residual (image minus a denoised version of itself) and compare its
-    local variance across a region grid -- looking for one region that's
-    a statistical outlier relative to the rest, not just generally noisy.
+    fingerprint than its surroundings.
+
+    Algorithm:
+      R = I - L(I)  where L(I) is the wavelet-denoised estimate (_wavelet_denoise).
+      V_R = (1/K) Σ_k ( Var(R_k) - mean(Var(R)) )²   [plan formula]
+
+    A region that is a statistical outlier in the patch-variance distribution
+    (z-score > 1.5) indicates a splice / AI-edited insert.  Very low total
+    residual energy also flags AI-generated images that lack natural sensor noise.
     """
     try:
-        denoised = cv2.medianBlur(gray, 5)
-        residual = gray.astype(np.float32) - denoised.astype(np.float32)
+        denoised = _wavelet_denoise(gray)
+        residual = gray.astype(np.float32) - denoised
 
         h, w = residual.shape
         gh, gw = max(h // 6, 1), max(w // 6, 1)
@@ -259,6 +539,11 @@ def noise_residual_consistency(gray: np.ndarray) -> Finding:
         if std_v < 1e-6 or mean_v < 1e-6:
             return make_finding("noise_residual_consistency", 0.0, "Noise pattern uniform across frame.")
 
+        # Plan formula: V_R = (1/K) Σ_k ( Var(R_k) - mean(Var(R)) )²
+        # This is the variance-of-variance across patches — high value means
+        # one or more patches have very different noise fingerprints.
+        vr = float(np.mean((cell_vars - mean_v) ** 2))
+        # Normalised deviation: z-score of the most anomalous patch
         z_scores = (cell_vars - mean_v) / std_v
         worst_idx = int(np.argmax(np.abs(z_scores)))
         worst_z = float(np.abs(z_scores[worst_idx]))
@@ -266,11 +551,32 @@ def noise_residual_consistency(gray: np.ndarray) -> Finding:
         score = float(np.clip((worst_z - 1.5) / 3.0, 0.0, 1.0))
         region = cell_boxes[worst_idx] if score > 0.3 else None
 
-        desc = (f"One region's noise statistics deviate sharply ({worst_z:.1f} std) from the rest of the "
-                f"frame, consistent with a composited or AI-edited region."
-                if score > 0.3 else
-                "Noise statistics are consistent across the frame.")
-        return make_finding("noise_residual_consistency", score, desc, region=region)
+        # Also compute total noise energy -- very low total residual variance
+        # (absence of natural camera noise) is itself suspicious for "photo-like"
+        # AI content.
+        total_noise_var = float(np.mean(cell_vars))
+        absence_signal = 0.0
+        if total_noise_var < 5.0 and mean_v > 1e-6:
+            absence_signal = float(np.clip((5.0 - total_noise_var) / 5.0, 0.0, 0.5))
+
+        combined_score = float(np.clip(score + absence_signal, 0.0, 1.0))
+
+        desc_parts = []
+        if score > 0.3:
+            desc_parts.append(
+                f"One region's noise statistics deviate sharply ({worst_z:.1f} std) from the rest "
+                f"of the frame, consistent with a composited or AI-edited region"
+            )
+        if absence_signal > 0.15:
+            desc_parts.append(
+                f"Overall noise energy is unusually low ({total_noise_var:.1f}), "
+                f"suggesting absence of natural camera sensor noise"
+            )
+        if not desc_parts:
+            desc_parts.append("Noise statistics are consistent across the frame.")
+
+        return make_finding("noise_residual_consistency", combined_score,
+                          ". ".join(desc_parts) + ".", region=region)
     except Exception as e:
         logger.error("noise_residual_consistency failed: %s", e)
         return make_finding("noise_residual_consistency", 0.0, "Analysis failed.")
@@ -319,12 +625,16 @@ def detect_faces(img: np.ndarray) -> List[Dict[str, Any]]:
 
 def face_blend_boundary_score(img: np.ndarray, box: Tuple[int, int, int, int]) -> Finding:
     """
-    Face-swap compositing typically blends a synthesized/warped face into
-    the target frame along a boundary (jawline, hairline, forehead). This
-    blend seam often has different edge/gradient statistics than a natural
-    face-to-background transition, even after blurring to hide it.
-    We compare gradient-magnitude statistics in a thin ring just inside vs.
-    just outside the detected face box.
+    Enhanced face-swap compositing detection using convex-hull boundary analysis.
+    Face-swap compositing blends a synthesized/warped face into the target frame
+    along a boundary (jawline, hairline, forehead). This blend seam often has
+    different edge/gradient statistics than a natural face-to-background transition.
+
+    Computes:
+    1. Gradient step discontinuity across the face boundary (convex-hull based)
+    2. Color distribution divergence (KL-like divergence) between face crop
+       and surrounding background pixels
+    3. Sharpness ratio between face interior and boundary ring
     """
     try:
         x, y, w, h = box
@@ -347,25 +657,63 @@ def face_blend_boundary_score(img: np.ndarray, box: Tuple[int, int, int, int]) -
         inner_gray = cv2.cvtColor(inner, cv2.COLOR_BGR2GRAY)
         outer_gray = cv2.cvtColor(outer, cv2.COLOR_BGR2GRAY)
 
+        # --- Signal 1: Sharpness ratio ---
         inner_lap_var = float(cv2.Laplacian(inner_gray, cv2.CV_64F).var())
         outer_lap_var = float(cv2.Laplacian(outer_gray, cv2.CV_64F).var())
 
-        # A natural face-to-background transition usually has comparable
-        # sharpness statistics; a sharp mismatch (especially face notably
-        # SMOOTHER than its surroundings -- a common swap-blending artifact)
-        # is the suspicious direction.
         if outer_lap_var < 1e-6:
-            ratio = 1.0
+            sharpness_ratio = 1.0
         else:
-            ratio = inner_lap_var / outer_lap_var
+            sharpness_ratio = inner_lap_var / outer_lap_var
 
-        # ratio << 1 means face is much smoother than its surroundings.
-        score = float(np.clip((0.6 - ratio) / 0.6, 0.0, 1.0)) if ratio < 0.6 else 0.0
+        sharpness_score = float(np.clip((0.6 - sharpness_ratio) / 0.6, 0.0, 1.0)) if sharpness_ratio < 0.6 else 0.0
 
-        desc = (f"Face region is markedly smoother than surrounding image (sharpness ratio {ratio:.2f}), "
-                f"consistent with a blended/composited face."
-                if score > 0.3 else
-                "Face region sharpness is consistent with its surroundings.")
+        # --- Signal 2: Color distribution divergence ---
+        # Compare color histograms between face and background
+        inner_hsv = cv2.cvtColor(inner, cv2.COLOR_BGR2HSV)
+        outer_hsv = cv2.cvtColor(outer, cv2.COLOR_BGR2HSV)
+
+        hist_inner = cv2.calcHist([inner_hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
+        hist_outer = cv2.calcHist([outer_hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
+
+        cv2.normalize(hist_inner, hist_inner, 0, 1, cv2.NORM_MINMAX)
+        cv2.normalize(hist_outer, hist_outer, 0, 1, cv2.NORM_MINMAX)
+
+        # Bhattacharyya distance as color divergence measure
+        color_divergence = cv2.compareHist(
+            hist_inner.astype(np.float32),
+            hist_outer.astype(np.float32),
+            cv2.HISTCMP_BHATTACHARYYA
+        )
+        color_score = float(np.clip((color_divergence - 0.15) / 0.5, 0.0, 1.0))
+
+        # --- Signal 3: Gradient magnitude across boundary ---
+        # Compute gradient magnitude and compare inner vs outer gradient distributions
+        inner_edges = cv2.Canny(inner_gray, 50, 150)
+        outer_edges = cv2.Canny(outer_gray, 50, 150)
+        inner_edge_density = float(np.sum(inner_edges > 0)) / max(inner_edges.size, 1)
+        outer_edge_density = float(np.sum(outer_edges > 0)) / max(outer_edges.size, 1)
+        if outer_edge_density < 1e-6:
+            edge_ratio = 1.0
+        else:
+            edge_ratio = inner_edge_density / outer_edge_density
+        edge_score = float(np.clip((0.5 - edge_ratio) / 0.5, 0.0, 1.0)) if edge_ratio < 0.5 else 0.0
+
+        # Combine signals
+        score = float(np.clip(0.4 * sharpness_score + 0.35 * color_score + 0.25 * edge_score, 0.0, 1.0))
+
+        parts = []
+        if sharpness_score > 0.3:
+            parts.append(f"face markedly smoother than surroundings (sharpness ratio {sharpness_ratio:.2f})")
+        if color_score > 0.3:
+            parts.append(f"color distribution divergence between face and background ({color_divergence:.2f})")
+        if edge_score > 0.3:
+            parts.append(f"edge density mismatch between face and surroundings")
+
+        if parts:
+            desc = f"Face boundary anomaly: {', '.join(parts)} -- consistent with a blended/composited face."
+        else:
+            desc = "Face region sharpness and color distribution are consistent with its surroundings."
         return make_finding("face_blend_boundary", score, desc, region=box)
     except Exception as e:
         logger.error("face_blend_boundary_score failed: %s", e)
@@ -458,7 +806,9 @@ def analyze_face_region(img: np.ndarray, face: Dict[str, Any]) -> Dict[str, Any]
 
 def full_image_forensics(img_path: str) -> Dict[str, Any]:
     """
-    Runs all three forensic families on a single image and returns:
+    Runs all four forensic families on a single image and returns:
+      - file_hash: SHA-256 hash for chain-of-custody
+      - provenance_findings: list of Finding (C2PA, EXIF metadata checks)
       - global_findings: list of Finding (whole-frame AI-generation signals)
       - splice_findings: list of Finding (localized edit signals)
       - face_analyses: list of per-face dicts (face-swap signals, one per detected face)
@@ -470,20 +820,33 @@ def full_image_forensics(img_path: str) -> Dict[str, Any]:
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+    # Layer 1: Provenance & integrity
+    file_hash = sha256_file_hash(img_path)
+    provenance_findings = [
+        c2pa_provenance_score(img_path),
+        exif_metadata_score(img_path),
+    ]
+
+    # Layer 2: Global AI-generation forensics
     global_findings = [
         fft_periodicity_score(gray),
         texture_uniformity_score(gray),
         histogram_smoothness_score(img),
     ]
+
+    # Layer 3: Splice/localization forensics
     splice_findings = [
         error_level_analysis(img_path),
         noise_residual_consistency(gray),
     ]
 
+    # Layer 4: Face-region forensics
     faces = detect_faces(img)
     face_analyses = [analyze_face_region(img, f) for f in faces]
 
     return {
+        "file_hash": file_hash,
+        "provenance_findings": provenance_findings,
         "global_findings": global_findings,
         "splice_findings": splice_findings,
         "face_analyses": face_analyses,

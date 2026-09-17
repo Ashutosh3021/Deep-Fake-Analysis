@@ -105,6 +105,96 @@
                     </div>
                 </div>
 
+                <!-- ══════════════════════════════════════════════════════ -->
+                <!-- Multi-Modal Fusion Section                             -->
+                <!-- ══════════════════════════════════════════════════════ -->
+                <div class="fusion-section">
+                    <div class="fusion-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        </svg>
+                        <div>
+                            <h3>Multi-Modal Fusion Analysis</h3>
+                            <p class="fusion-subtitle">Submit a video/image, audio, and/or text together for cross-modal Bayesian evidence fusion — the strongest verdict DeepGuard can produce.</p>
+                        </div>
+                    </div>
+
+                    <div class="fusion-inputs">
+                        <div class="fusion-slot">
+                            <label class="fusion-slot-label" for="fusion-file-video">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="2" y="2" width="20" height="20" rx="2"/>
+                                    <polygon points="10 8 16 12 10 16 10 8"/>
+                                </svg>
+                                Video / Image
+                            </label>
+                            <input type="file" id="fusion-file-video" class="fusion-file-input" accept="image/*,video/*">
+                            <span class="fusion-file-name" id="fusion-name-video">No file chosen</span>
+                        </div>
+                        <div class="fusion-slot">
+                            <label class="fusion-slot-label" for="fusion-file-audio">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M9 18V5l12-2v13"/>
+                                    <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+                                </svg>
+                                Audio
+                            </label>
+                            <input type="file" id="fusion-file-audio" class="fusion-file-input" accept="audio/*">
+                            <span class="fusion-file-name" id="fusion-name-audio">No file chosen</span>
+                        </div>
+                        <div class="fusion-slot fusion-slot-text">
+                            <label class="fusion-slot-label">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                Text (optional)
+                            </label>
+                            <textarea id="fusion-text-input" class="fusion-textarea"
+                                placeholder="Paste transcript or caption text here…" rows="3"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="fusion-actions">
+                        <button class="fusion-btn" id="fusion-analyze-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                            </svg>
+                            Run Fusion Analysis
+                        </button>
+                        <button class="fusion-clear-btn" id="fusion-clear-btn">Clear</button>
+                    </div>
+
+                    <div class="fusion-results" id="fusion-results" style="display:none;">
+                        <div class="fusion-verdict-card">
+                            <div class="fusion-verdict-header">
+                                <h4>Cross-Modal Fusion Verdict</h4>
+                                <div class="fusion-tier-badge" id="fusion-tier-badge">
+                                    <span id="fusion-tier-number">—</span>
+                                    <span id="fusion-tier-label">—</span>
+                                </div>
+                            </div>
+                            <div class="fusion-confidence-row">
+                                <span>Fused Probability</span>
+                                <span id="fusion-probability">—</span>
+                            </div>
+                            <div class="fusion-confidence-row">
+                                <span>Quality-Gated Weights</span>
+                                <span id="fusion-weights">—</span>
+                            </div>
+                            <div class="fusion-reasoning" id="fusion-reasoning"></div>
+                            <div class="fusion-warning" id="fusion-warning" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                </svg>
+                                <span id="fusion-warning-text"></span>
+                            </div>
+                        </div>
+                        <div class="fusion-modality-breakdown" id="fusion-modality-breakdown"></div>
+                    </div>
+                </div>
+
                 <!-- Results Section -->
                 <div class="results-section" id="results-section" style="display: none;">
                     <h2>Analysis Results</h2>
@@ -116,6 +206,22 @@
                             </div>
                             <div class="result-verdict" id="result-verdict">
                                 <span class="verdict-badge">AI Generated</span>
+                            </div>
+                        </div>
+
+                        <!-- 4-Tier Verdict Display -->
+                        <div class="tier-display" id="tier-display" style="display: none;">
+                            <div class="tier-badge" id="tier-badge">
+                                <span class="tier-number" id="tier-number">3</span>
+                                <span class="tier-label" id="tier-label">Indeterminate</span>
+                            </div>
+                            <div class="tier-warning" id="tier-warning" style="display: none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                    <line x1="12" y1="9" x2="12" y2="13"/>
+                                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                </svg>
+                                <span id="tier-warning-text">Evidence is conflicting or insufficient. Further analysis recommended.</span>
                             </div>
                         </div>
 
@@ -133,28 +239,35 @@
                             <div class="detail-grid">
                                 <div class="detail-item">
                                     <span class="detail-label">Detection Method</span>
-                                    <span class="detail-value" id="detection-method">Ensemble ML</span>
+                                    <span class="detail-value" id="detection-method">Multi-Family Forensic</span>
                                 </div>
                                 <div class="detail-item">
-                                    <span class="detail-label">Model Accuracy</span>
-                                    <span class="detail-value" id="model-accuracy">95.8%</span>
+                                    <span class="detail-label">Fused Score</span>
+                                    <span class="detail-value" id="probability-value">0.720</span>
                                 </div>
                                 <div class="detail-item">
-                                    <span class="detail-label">Probability</span>
-                                    <span class="detail-value" id="probability-value">0.952</span>
+                                    <span class="detail-label">File Hash</span>
+                                    <span class="detail-value" id="file-hash" style="font-size: 11px; word-break: break-all;">N/A</span>
                                 </div>
                                 <div class="detail-item">
-                                    <span class="detail-label">Analysis Time</span>
-                                    <span class="detail-value" id="analysis-time">1.2s</span>
+                                    <span class="detail-label">Modality</span>
+                                    <span class="detail-value" id="analysis-modality">Image</span>
                                 </div>
                             </div>
                         </div>
 
+                        <!-- Evidence Breakdown -->
                         <div class="model-breakdown" id="model-breakdown">
-                            <h4>Model Breakdown</h4>
+                            <h4>Evidence Breakdown</h4>
                             <div class="breakdown-list" id="breakdown-list">
                                 <!-- Dynamic content -->
                             </div>
+                        </div>
+
+                        <!-- Suspicious Spans (text/video/audio specific) -->
+                        <div class="suspicious-section" id="suspicious-section" style="display: none;">
+                            <h4>Suspicious Regions / Intervals</h4>
+                            <div class="suspicious-list" id="suspicious-list"></div>
                         </div>
                     </div>
                 </div>
@@ -295,42 +408,70 @@
                 <div class="about-content">
                     <h2>About DeepGuard AI</h2>
                     <p class="about-description">
-                        DeepGuard AI is an advanced multi-modal deepfake and AI-generated content detection system.
-                        Using state-of-the-art machine learning models, it can detect manipulated or AI-generated
-                        content across images, videos, audio, and text with high accuracy.
+                        DeepGuard AI is a production-grade, multi-modal deepfake and AI-generated content
+                        detection system built on a <strong>Layered Defense-in-Depth Architecture</strong>.
+                        It combines cryptographic provenance verification, classical forensic analysis,
+                        deep-learning detectors, and cross-modal consistency checks — fused through a
+                        Bayesian evidence engine into a 4-tier verdict that always includes an
+                        <em>Indeterminate</em> class to prevent false-positive accusations.
                     </p>
 
                     <div class="tech-stack">
-                        <h3>Technology Stack</h3>
+                        <h3>Detection Architecture (v3)</h3>
                         <div class="tech-grid">
                             <div class="tech-item">
                                 <span class="tech-name">Image Detection</span>
-                                <span class="tech-desc">Ensemble CNN with 95.8% accuracy</span>
+                                <span class="tech-desc">C2PA/EXIF provenance · 2D DFT 1/f spectral decay · Wavelet-denoised noise residual (PRNU) · ELA splice detection · Multi-crop HuggingFace classifier · Per-face blend-boundary &amp; noise-mismatch analysis</span>
                             </div>
                             <div class="tech-item">
                                 <span class="tech-name">Video Detection</span>
-                                <span class="tech-desc">3D CNN + Optical Flow analysis</span>
+                                <span class="tech-desc">Scene-cut keyframe selection · Landmark velocity &amp; acceleration kinematics (3σ spike detection) · Farneback optical flow warp residual · Face identity cosine-distance tracking · Blink-rate analysis · Audio-visual lip-sync cross-correlation (MAR vs energy envelope)</span>
                             </div>
                             <div class="tech-item">
                                 <span class="tech-name">Audio Detection</span>
-                                <span class="tech-desc">CNN-LSTM with artifact detection</span>
+                                <span class="tech-desc">16 kHz mono + RMS silence trimming · Static + Δ + ΔΔ MFCC · Spectral centroid &amp; flatness · HNR via HPSS · F₀ pitch jitter (pyin) · Phase coherence · Quality-weighted segment aggregation · Wav2Vec2-based spoof classifier</span>
                             </div>
                             <div class="tech-item">
                                 <span class="tech-name">Text Detection</span>
-                                <span class="tech-desc">Statistical + Neural analysis</span>
+                                <span class="tech-desc">GPT-2 perplexity + burstiness B=(σ−μ)/(σ+μ) · DetectGPT log-probability curvature · TTR / Hapax Legomena / Shannon entropy · KGW watermark z-score (multi-seed) · Formulaic AI discourse marker density</span>
+                            </div>
+                            <div class="tech-item">
+                                <span class="tech-name">Fusion Engine</span>
+                                <span class="tech-desc">Quality-aware modality gating (α_m) · Bayesian log-likelihood ratio fusion · 4-tier verdict: Verified Provenance / Likely Authentic / Indeterminate / Likely Synthetic · Cost-sensitive thresholds (τ* = C_FP / C_FP + C_FN)</span>
+                            </div>
+                            <div class="tech-item">
+                                <span class="tech-name">Query Assistant</span>
+                                <span class="tech-desc">YOLOv8 object detection on uploaded images · Gemini 2.0 Flash for open-ended forensic Q&amp;A</span>
                             </div>
                         </div>
                     </div>
 
                     <div class="features">
-                        <h3>Key Features</h3>
+                        <h3>Key Forensic Capabilities</h3>
                         <ul class="feature-list">
-                            <li>Multi-modal content detection</li>
-                            <li>Ensemble model architecture for higher accuracy</li>
-                            <li>Real-time analysis and visualization</li>
-                            <li>Detailed confidence breakdown</li>
-                            <li>History tracking and reporting</li>
+                            <li>SHA-256 chain-of-custody hash on every uploaded file</li>
+                            <li>C2PA / JUMBF content credentials detection</li>
+                            <li>Localized bounding-box evidence (ELA splice regions, per-face findings)</li>
+                            <li>Temporal suspicious-interval localization in video [start_sec, end_sec]</li>
+                            <li>Suspicious audio segment reporting with per-segment SNR quality weights</li>
+                            <li>Suspicious text span highlighting with explanatory justifications</li>
+                            <li>Multi-modal cross-evidence fusion via <code>/api/detect/fusion</code></li>
+                            <li>Indeterminate tier prevents false-positive accusations on low-confidence evidence</li>
+                            <li>All verdicts include a full ranked evidence trail, not just a score</li>
                         </ul>
+                    </div>
+
+                    <div class="features" style="margin-top: 1.5rem;">
+                        <h3>Research Foundation</h3>
+                        <p style="color: #6b7280; font-size: 0.9rem; line-height: 1.6;">
+                            Architecture grounded in the 2025–2026 forensic research consensus:
+                            no single detector is foolproof. Unimodal classifiers trained on isolated
+                            benchmarks fail under out-of-distribution conditions, social media
+                            compression, paraphrasing, and adversarial evasion (up to 80–88% attack
+                            success rate). Robustness requires layered, redundant, independently-operating
+                            forensic signals fused with calibrated uncertainty. DeepGuard AI reports
+                            evidence, not verdicts — high-impact decisions always require human review.
+                        </p>
                     </div>
                 </div>
             </div>

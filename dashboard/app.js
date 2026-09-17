@@ -170,7 +170,10 @@ class DeepGuardDashboard {
         document.getElementById('result-file-type').textContent = fileType.charAt(0).toUpperCase() + fileType.slice(1);
         document.getElementById('result-filename').textContent = filename;
 
-        // Determine verdict based on new result format
+        // Update modality display
+        document.getElementById('analysis-modality').textContent = fileType.charAt(0).toUpperCase() + fileType.slice(1);
+
+        // Determine verdict based on result format
         let isFake, confidence, label, verdictClass;
 
         if (fileType === 'text') {
@@ -181,7 +184,7 @@ class DeepGuardDashboard {
             isFake = result.label === 'SYNTHETIC';
             confidence = result.confidence;
             label = isFake ? 'Synthetic' : (result.label === 'AUTHENTIC' ? 'Authentic' : 'Uncertain');
-        } else { // image or video
+        } else {
             isFake = result.label === 'FAKE';
             confidence = result.confidence;
             label = isFake ? 'Fake' : (result.label === 'AUTHENTIC' ? 'Authentic' : 'Uncertain');
@@ -189,21 +192,69 @@ class DeepGuardDashboard {
 
         verdictClass = isFake ? 'fake' : (result.label === 'UNCERTAIN' ? 'uncertain' : 'real');
 
-        // Update verdict
+        // Update verdict badge
         const verdictEl = document.getElementById('result-verdict');
         verdictEl.innerHTML = `<span class="verdict-badge ${verdictClass}">${escapeHTML(String(label))}</span>`;
+
+        // 4-Tier Verdict Display
+        const tierDisplay = document.getElementById('tier-display');
+        const tierBadge = document.getElementById('tier-badge');
+        const tierNumber = document.getElementById('tier-number');
+        const tierLabel = document.getElementById('tier-label');
+        const tierWarning = document.getElementById('tier-warning');
+        const tierWarningText = document.getElementById('tier-warning-text');
+
+        // Determine tier from result
+        let tier = 3;
+        let tierName = 'Indeterminate';
+        if (result.family_scores && result.family_scores.provenance > 0.7) {
+            tier = 1;
+            tierName = 'Verified Provenance';
+        } else if (verdictClass === 'real') {
+            tier = 2;
+            tierName = 'Likely Authentic';
+        } else if (isFake) {
+            tier = 4;
+            tierName = 'Likely Synthetic';
+        } else if (verdictClass === 'uncertain') {
+            tier = 3;
+            tierName = 'Indeterminate';
+        }
+
+        tierDisplay.style.display = 'block';
+        tierNumber.textContent = tier;
+        tierLabel.textContent = tierName;
+
+        // Color the tier badge
+        const tierColors = {1: '#10b981', 2: '#3b82f6', 3: '#f59e0b', 4: '#ef4444'};
+        tierBadge.style.borderColor = tierColors[tier] || '#6b7280';
+
+        // Show warning for indeterminate tier
+        if (tier === 3) {
+            tierWarning.style.display = 'flex';
+            tierWarningText.textContent = 'Evidence is conflicting or insufficient for a definitive conclusion. Further analysis with additional data is recommended.';
+        } else if (tier === 4 && (result.fake_type && result.fake_type.length < 2)) {
+            tierWarning.style.display = 'flex';
+            tierWarningText.textContent = 'Only one forensic signal fired. High-stakes decisions should require corroborating evidence from multiple independent signals.';
+        } else {
+            tierWarning.style.display = 'none';
+        }
 
         // Update confidence
         document.getElementById('confidence-value').textContent = `${typeof confidence === 'number' ? confidence.toFixed(1) : confidence}%`;
         const meterFill = document.getElementById('confidence-fill');
         meterFill.style.width = `${confidence}%`;
-        meterFill.style.background = isFake
-            ? 'linear-gradient(90deg, #f59e0b 0%, #ef4444 100%)'
-            : (result.label === 'UNCERTAIN' ? 'linear-gradient(90deg, #6b7280 0%, #4b5563 100%)' : 'linear-gradient(90deg, #10b981 0%, #059669 100%)');
 
-        // Update details with new fields
-        document.getElementById('detection-method').textContent = result.signal_source || result.notes || 'Advanced ML';
-        document.getElementById('model-accuracy').textContent = 'N/A';
+        const tierGradients = {
+            1: 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
+            2: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+            3: 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)',
+            4: 'linear-gradient(90deg, #f59e0b 0%, #ef4444 100%)',
+        };
+        meterFill.style.background = tierGradients[tier] || 'linear-gradient(90deg, #6b7280 0%, #4b5563 100%)';
+
+        // Update details
+        document.getElementById('detection-method').textContent = result.signal_source || 'Multi-Family Forensic';
 
         let probability;
         if (fileType === 'text') {
@@ -211,12 +262,25 @@ class DeepGuardDashboard {
         } else if (fileType === 'audio') {
             probability = result.fake_probability;
         } else {
-            probability = result.family_scores ? Object.values(result.family_scores).filter(v => typeof v === 'number').sort((a, b) => b - a)[0] : null;
+            const scores = result.family_scores;
+            if (scores) {
+                const numScores = Object.values(scores).filter(v => typeof v === 'number');
+                probability = numScores.length > 0 ? Math.max(...numScores) : null;
+            } else {
+                probability = null;
+            }
         }
-        document.getElementById('probability-value').textContent = probability ? probability.toFixed(3) : 'N/A';
+        document.getElementById('probability-value').textContent = probability !== null ? probability.toFixed(3) : 'N/A';
 
-        // Update breakdown
+        // File hash
+        const hashEl = document.getElementById('file-hash');
+        hashEl.textContent = result.file_hash || 'N/A';
+
+        // Evidence breakdown
         this.updateModelBreakdown(result, fileType);
+
+        // Suspicious spans/intervals
+        this.updateSuspiciousSection(result, fileType);
 
         // Scroll to results
         resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -277,6 +341,37 @@ class DeepGuardDashboard {
 
         if (breakdownList.children.length === 0) {
             breakdownList.innerHTML = '<p style="color: #6b7280; text-align: center;">Detailed breakdown not available</p>';
+        }
+    }
+
+    updateSuspiciousSection(result, fileType) {
+        const section = document.getElementById('suspicious-section');
+        const list = document.getElementById('suspicious-list');
+        if (!section || !list) return;
+
+        const items = [];
+
+        if (fileType === 'video' && result.suspicious_intervals && result.suspicious_intervals.length > 0) {
+            result.suspicious_intervals.forEach((interval, i) => {
+                items.push(`<div class="suspicious-item"><span class="suspicious-tag">Interval ${i + 1}</span><span>${escapeHTML(String(interval[0]))}s – ${escapeHTML(String(interval[1]))}s</span></div>`);
+            });
+        } else if (fileType === 'text' && result.suspicious_spans && result.suspicious_spans.length > 0) {
+            result.suspicious_spans.forEach((span, i) => {
+                const reasons = Array.isArray(span.reasons) ? span.reasons.join('; ') : '';
+                items.push(`<div class="suspicious-item"><span class="suspicious-tag">Span ${i + 1}</span><span>${escapeHTML(String(span.text || ''))}${reasons ? ' — ' + escapeHTML(String(reasons)) : ''}</span></div>`);
+            });
+        } else if (fileType === 'audio' && result.suspicious_segments && result.suspicious_segments.length > 0) {
+            result.suspicious_segments.forEach((seg, i) => {
+                items.push(`<div class="suspicious-item"><span class="suspicious-tag">Segment ${i + 1}</span><span>${escapeHTML(String(seg.start_sec))}s – ${escapeHTML(String(seg.end_sec))}s (score ${(seg.fake_score * 100).toFixed(1)}%)</span></div>`);
+            });
+        }
+
+        if (items.length > 0) {
+            section.style.display = 'block';
+            list.innerHTML = items.join('');
+        } else {
+            section.style.display = 'none';
+            list.innerHTML = '';
         }
     }
 
@@ -440,12 +535,6 @@ class DeepGuardDashboard {
         }
     }
 }
-
-// Initialize dashboard when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    window.dashboard = new DeepGuardDashboard();
-    window.queryAssistant = new QueryAssistant();
-});
 
 /* ════════════════════════════════════════════════════════════
    Query Assistant
@@ -682,3 +771,197 @@ class QueryAssistant {
         }
     }
 }
+
+/* ════════════════════════════════════════════════════════════
+   Multi-Modal Fusion UI
+   Wires up the fusion section to POST /api/detect/fusion and
+   renders the 4-tier cross-modal verdict.
+   ════════════════════════════════════════════════════════════ */
+class FusionAnalyzer {
+    constructor(apiBaseUrl) {
+        this.apiBaseUrl = apiBaseUrl;
+        this._bindEvents();
+    }
+
+    _bindEvents() {
+        // Show selected filenames
+        ['video', 'audio'].forEach(slot => {
+            const input = document.getElementById(`fusion-file-${slot}`);
+            const label = document.getElementById(`fusion-name-${slot}`);
+            if (input && label) {
+                input.addEventListener('change', () => {
+                    label.textContent = input.files[0] ? input.files[0].name : 'No file chosen';
+                });
+            }
+        });
+
+        const analyzeBtn = document.getElementById('fusion-analyze-btn');
+        if (analyzeBtn) {
+            analyzeBtn.addEventListener('click', () => this._runFusion());
+        }
+
+        const clearBtn = document.getElementById('fusion-clear-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => this._clearFusion());
+        }
+    }
+
+    async _runFusion() {
+        const videoFile = document.getElementById('fusion-file-video').files[0];
+        const audioFile = document.getElementById('fusion-file-audio').files[0];
+        const textVal   = document.getElementById('fusion-text-input').value.trim();
+
+        if (!videoFile && !audioFile && !textVal) {
+            alert('Please provide at least one file or text for fusion analysis.');
+            return;
+        }
+
+        const btn = document.getElementById('fusion-analyze-btn');
+        btn.disabled = true;
+        this._showLoading(true);
+
+        try {
+            const formData = new FormData();
+            if (videoFile) formData.append('files', videoFile);
+            if (audioFile) formData.append('files', audioFile);
+            if (textVal)   formData.append('text', textVal);
+
+            const response = await fetch(`${this.apiBaseUrl}/api/detect/fusion`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error || `HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Fusion analysis failed');
+
+            this._renderFusionResult(data);
+        } catch (err) {
+            console.error('Fusion error:', err);
+            this._renderFusionError(err.message);
+        } finally {
+            btn.disabled = false;
+            this._showLoading(false);
+        }
+    }
+
+    _renderFusionResult(data) {
+        const resultsEl = document.getElementById('fusion-results');
+        const fusion = data.fusion_result || {};
+
+        // — Tier badge —
+        const tier      = fusion.tier      || 3;
+        const tierName  = fusion.tier_name || 'Indeterminate';
+        const tierColors = { 1: '#10b981', 2: '#3b82f6', 3: '#f59e0b', 4: '#ef4444' };
+
+        document.getElementById('fusion-tier-number').textContent = tier;
+        document.getElementById('fusion-tier-label').textContent  = tierName;
+        const badge = document.getElementById('fusion-tier-badge');
+        badge.style.borderColor = tierColors[tier] || '#6b7280';
+
+        // — Fused probability —
+        const prob = typeof fusion.fused_fake_probability === 'number'
+            ? (fusion.fused_fake_probability * 100).toFixed(1) + '%'
+            : '—';
+        document.getElementById('fusion-probability').textContent = prob;
+
+        // — Quality-gated weights —
+        const gates = fusion.quality_gates || {};
+        const gateStr = Object.entries(gates)
+            .map(([k, v]) => `${k}: ${(v * 100).toFixed(0)}%`)
+            .join(' · ') || '—';
+        document.getElementById('fusion-weights').textContent = gateStr;
+
+        // — Reasoning —
+        document.getElementById('fusion-reasoning').textContent =
+            fusion.reasoning ? '↳ ' + fusion.reasoning : '';
+
+        // — Warning for tier 3 or single-signal tier 4 —
+        const warningEl = document.getElementById('fusion-warning');
+        const warningText = document.getElementById('fusion-warning-text');
+        if (tier === 3) {
+            warningEl.style.display = 'flex';
+            warningText.textContent =
+                'Evidence is conflicting or insufficient for a definitive conclusion. ' +
+                'Further analysis with additional data is recommended.';
+        } else if (tier === 4 && (fusion.fake_agreement_count || 0) < 2) {
+            warningEl.style.display = 'flex';
+            warningText.textContent =
+                'Only one modality is synthetic-leaning. High-stakes decisions ' +
+                'should require corroborating evidence from multiple independent signals.';
+        } else {
+            warningEl.style.display = 'none';
+        }
+
+        // — Per-modality breakdown —
+        const breakdown = document.getElementById('fusion-modality-breakdown');
+        breakdown.innerHTML = '';
+        const modScores = fusion.modality_scores || {};
+        Object.entries(modScores).forEach(([mod, score]) => {
+            const pct = (score * 100).toFixed(1);
+            const isAuth = score < 0.4;
+            const card = document.createElement('div');
+            card.className = 'fusion-mod-card';
+            card.innerHTML = `
+                <div class="mod-name">${escapeHTML(mod)}</div>
+                <div class="mod-score ${isAuth ? 'authentic' : ''}">
+                    Fake score: <span>${escapeHTML(pct)}%</span>
+                </div>`;
+            breakdown.appendChild(card);
+        });
+
+        // Show results
+        resultsEl.style.display = 'block';
+        resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    _renderFusionError(msg) {
+        const resultsEl = document.getElementById('fusion-results');
+        document.getElementById('fusion-reasoning').textContent = '';
+        document.getElementById('fusion-probability').textContent = '—';
+        document.getElementById('fusion-weights').textContent = '—';
+        document.getElementById('fusion-tier-number').textContent = '!';
+        document.getElementById('fusion-tier-label').textContent = 'Error';
+        document.getElementById('fusion-tier-badge').style.borderColor = '#ef4444';
+        document.getElementById('fusion-warning').style.display = 'flex';
+        document.getElementById('fusion-warning-text').textContent = `Analysis failed: ${msg}`;
+        document.getElementById('fusion-modality-breakdown').innerHTML = '';
+        resultsEl.style.display = 'block';
+    }
+
+    _clearFusion() {
+        ['video', 'audio'].forEach(slot => {
+            const input = document.getElementById(`fusion-file-${slot}`);
+            const label = document.getElementById(`fusion-name-${slot}`);
+            if (input) input.value = '';
+            if (label) label.textContent = 'No file chosen';
+        });
+        const textarea = document.getElementById('fusion-text-input');
+        if (textarea) textarea.value = '';
+        const resultsEl = document.getElementById('fusion-results');
+        if (resultsEl) resultsEl.style.display = 'none';
+    }
+
+    _showLoading(show) {
+        const overlay = document.getElementById('loading-overlay');
+        const p = overlay.querySelector('p');
+        if (show) {
+            if (p) p.textContent = 'Running cross-modal fusion…';
+            overlay.classList.add('active');
+        } else {
+            if (p) p.textContent = 'Analyzing content…';
+            overlay.classList.remove('active');
+        }
+    }
+}
+
+// Initialize dashboard when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    window.dashboard = new DeepGuardDashboard();
+    window.queryAssistant = new QueryAssistant();
+    window.fusionAnalyzer = new FusionAnalyzer('http://localhost:5000');
+});
