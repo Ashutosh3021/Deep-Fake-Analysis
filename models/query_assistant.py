@@ -18,31 +18,36 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # ─────────────────────────────────────────────────────────────
 # YOLO loader (lazy – avoids import at module level)
 # ─────────────────────────────────────────────────────────────
+import threading
+
+_yolo_lock = threading.Lock()
 _yolo_model = None
 
 def _get_yolo():
     global _yolo_model
     if _yolo_model is None:
-        import torch
-        import functools
-        from ultralytics import YOLO
+        with _yolo_lock:
+            if _yolo_model is None:
+                import torch
+                import functools
+                from ultralytics import YOLO
 
-        # PyTorch 2.6+ defaults torch.load to weights_only=True, which blocks
-        # ultralytics custom classes. We patch torch.load to force weights_only=False
-        # only while the official yolov8n.pt weights are being loaded.
-        # This is safe: the file is from Ultralytics and we downloaded it ourselves.
-        _original_load = torch.load
+                # PyTorch 2.6+ defaults torch.load to weights_only=True, which blocks
+                # ultralytics custom classes. We patch torch.load to force weights_only=False
+                # only while the official yolov8n.pt weights are being loaded.
+                # This is safe: the file is from Ultralytics and we downloaded it ourselves.
+                _original_load = torch.load
 
-        @functools.wraps(_original_load)
-        def _patched_load(*args, **kwargs):
-            kwargs["weights_only"] = False
-            return _original_load(*args, **kwargs)
+                @functools.wraps(_original_load)
+                def _patched_load(*args, **kwargs):
+                    kwargs["weights_only"] = False
+                    return _original_load(*args, **kwargs)
 
-        torch.load = _patched_load
-        try:
-            _yolo_model = YOLO("yolov8n.pt")
-        finally:
-            torch.load = _original_load   # always restore original
+                torch.load = _patched_load
+                try:
+                    _yolo_model = YOLO("yolov8n.pt")
+                finally:
+                    torch.load = _original_load   # always restore original
 
     return _yolo_model
 
