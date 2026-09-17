@@ -101,17 +101,21 @@ class FinalVideoDetector:
     def _extract_frames(self, video_path: str, max_frames: int = MAX_FRAMES_SAMPLED) -> List[np.ndarray]:
         cap = cv2.VideoCapture(video_path)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        step = max(1, total // max_frames) if total > 0 else 1
+        if total <= 0:
+            return []
+
+        step = max(1, total // max_frames)
 
         frames = []
-        idx = 0
-        while len(frames) < max_frames:
+        for i in range(max_frames):
+            target_frame = i * step
+            if target_frame >= total:
+                break
+            cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
             ret, frame = cap.read()
             if not ret:
                 break
-            if idx % step == 0:
-                frames.append(frame)
-            idx += 1
+            frames.append(frame)
         cap.release()
         return frames
 

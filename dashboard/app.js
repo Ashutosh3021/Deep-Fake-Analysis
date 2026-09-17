@@ -1,3 +1,16 @@
+function escapeHTML(str) {
+    if (typeof str !== 'string') return str;
+    return str.replace(/[&<>'"]/g,
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag)
+    );
+}
+
 // DeepGuard AI Dashboard JavaScript
 class DeepGuardDashboard {
     constructor() {
@@ -178,7 +191,7 @@ class DeepGuardDashboard {
 
         // Update verdict
         const verdictEl = document.getElementById('result-verdict');
-        verdictEl.innerHTML = `<span class="verdict-badge ${verdictClass}">${label}</span>`;
+        verdictEl.innerHTML = `<span class="verdict-badge ${verdictClass}">${escapeHTML(String(label))}</span>`;
 
         // Update confidence
         document.getElementById('confidence-value').textContent = `${typeof confidence === 'number' ? confidence.toFixed(1) : confidence}%`;
@@ -219,7 +232,7 @@ class DeepGuardDashboard {
             if (result.fake_type && result.fake_type.length > 0) {
                 const fakeTypeItem = document.createElement('div');
                 fakeTypeItem.className = 'breakdown-item';
-                fakeTypeItem.innerHTML = `<span class="breakdown-name">Fake Type</span><div style="display: flex; gap: 8px;">${result.fake_type.map(type => `<span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 12px;">${type.replace('_', ' ')}</span>`).join('')}</div>`;
+                fakeTypeItem.innerHTML = `<span class="breakdown-name">Fake Type</span><div style="display: flex; gap: 8px;">${result.fake_type.map(type => `<span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 12px;">${escapeHTML(String(type).replace(/_/g, ' '))}</span>`).join('')}</div>`;
                 breakdownList.appendChild(fakeTypeItem);
             }
             // Display reasons
@@ -228,9 +241,9 @@ class DeepGuardDashboard {
                     const item = document.createElement('div');
                     item.className = 'breakdown-item';
                     item.innerHTML = `
-                        <span class="breakdown-name">${reason.signal || 'Reason ' + (index + 1)}</span>
+                        <span class="breakdown-name">${escapeHTML(String(reason.signal || 'Reason ' + (index + 1)))}</span>
                         <div style="flex: 1; margin: 0 16px; display: flex; flex-direction: column; gap: 4px;">
-                            <div style="color: #374151; font-size: 13px;">${reason.description || ''}</div>
+                            <div style="color: #374151; font-size: 13px;">${escapeHTML(String(reason.description || ''))}</div>
                             <div class="breakdown-bar">
                                 <div class="breakdown-fill" style="width: ${(reason.score * 100).toFixed(1)}%"></div>
                             </div>
@@ -246,7 +259,7 @@ class DeepGuardDashboard {
             signalItem.className = 'breakdown-item';
             signalItem.innerHTML = `
                 <span class="breakdown-name">Signal Source</span>
-                <div style="flex: 1; color: #374151;">${result.signal_source || 'N/A'}</div>
+                <div style="flex: 1; color: #374151;">${escapeHTML(String(result.signal_source || 'N/A'))}</div>
                 <span class="breakdown-score">${(result.fake_probability * 100).toFixed(1)}%</span>
             `;
             breakdownList.appendChild(signalItem);
@@ -362,12 +375,12 @@ class DeepGuardDashboard {
                             ${icon}
                         </div>
                         <div class="history-details">
-                            <h4>${item.filename}</h4>
+                            <h4>${escapeHTML(String(item.filename))}</h4>
                             <span>${new Date(item.timestamp).toLocaleString()}</span>
                         </div>
                     </div>
                     <div class="history-result">
-                        <span class="history-verdict ${verdictClass}">${label}</span>
+                        <span class="history-verdict ${verdictClass}">${escapeHTML(String(label))}</span>
                         <div class="history-confidence">${typeof item.result.confidence === 'number' ? item.result.confidence.toFixed(1) : item.result.confidence}% confidence</div>
                     </div>
                 </div>
@@ -574,7 +587,7 @@ class QueryAssistant {
                 .sort((a, b) => b[1] - a[1])
                 .map(([name, conf]) =>
                     `<span class="object-tag">
-                        ${name}
+                        ${escapeHTML(String(name))}
                         <span class="tag-conf">${conf}%</span>
                     </span>`
                 ).join('');
@@ -652,7 +665,7 @@ class QueryAssistant {
 
         objSec.style.display = 'none';
         resultsEl.style.display = '';
-        answerEl.innerHTML = `<span style="color:#ef4444;">⚠ Error: ${msg}</span>`;
+        answerEl.innerHTML = `<span style="color:#ef4444;">⚠ Error: ${escapeHTML(String(msg))}</span>`;
         resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 

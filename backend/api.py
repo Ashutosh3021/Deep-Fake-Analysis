@@ -135,6 +135,8 @@ def detect_image():
         
         # Save file
         filename = secure_filename(file.filename)
+        if not filename:
+            return jsonify({"error": "Invalid filename"}), 400
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
@@ -178,6 +180,8 @@ def detect_audio():
         
         # Save file
         filename = secure_filename(file.filename)
+        if not filename:
+            return jsonify({"error": "Invalid filename"}), 400
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
@@ -219,6 +223,8 @@ def detect_video():
         
         # Save file
         filename = secure_filename(file.filename)
+        if not filename:
+            return jsonify({"error": "Invalid filename"}), 400
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
@@ -292,6 +298,8 @@ def detect_auto():
         
         # Save file
         filename = secure_filename(file.filename)
+        if not filename:
+            return jsonify({"error": "Invalid filename"}), 400
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
@@ -348,6 +356,8 @@ def query_assistant_endpoint():
             user_query = request.form.get('query', '').strip()
 
             filename = secure_filename(file.filename)
+            if not filename:
+                return jsonify({"error": "Invalid filename"}), 400
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
 

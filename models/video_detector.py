@@ -82,37 +82,38 @@ class VideoDeepfakeDetector:
         mouth_ratios = []
         frame_positions = []
         
-        frame_idx = 0
         processed_frame_count = 0
         
-        while cap.isOpened() and processed_frame_count < max_frames:
+        for i in range(max_frames):
+            target_frame = i * step_size
+            if target_frame >= frame_count:
+                break
+
+            cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
             ret, frame = cap.read()
             if not ret:
                 break
                 
-            if frame_idx % step_size == 0:
-                # Process this frame
-                landmarks, head_pose = self.extract_face_landmarks(frame)
-                
-                if landmarks is not None and head_pose is not None:
-                    face_landmarks_sequence.append(landmarks)
-                    head_poses.append(head_pose)
-                    
-                    # Calculate eye aspect ratio (EAR)
-                    ear = self.calculate_eye_aspect_ratio(landmarks)
-                    eye_ratios.append(ear)
-                    
-                    # Calculate mouth aspect ratio (MAR)
-                    mar = self.calculate_mouth_aspect_ratio(landmarks)
-                    mouth_ratios.append(mar)
-                    
-                    # Store face position
-                    face_center = self.get_face_center(landmarks)
-                    frame_positions.append(face_center)
-                    
-                    processed_frame_count += 1
+            # Process this frame
+            landmarks, head_pose = self.extract_face_landmarks(frame)
             
-            frame_idx += 1
+            if landmarks is not None and head_pose is not None:
+                face_landmarks_sequence.append(landmarks)
+                head_poses.append(head_pose)
+
+                # Calculate eye aspect ratio (EAR)
+                ear = self.calculate_eye_aspect_ratio(landmarks)
+                eye_ratios.append(ear)
+
+                # Calculate mouth aspect ratio (MAR)
+                mar = self.calculate_mouth_aspect_ratio(landmarks)
+                mouth_ratios.append(mar)
+
+                # Store face position
+                face_center = self.get_face_center(landmarks)
+                frame_positions.append(face_center)
+
+                processed_frame_count += 1
         
         cap.release()
         
