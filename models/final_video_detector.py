@@ -38,6 +38,15 @@ import forensics_core as fc
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
+# V2 neural network modules
+try:
+    import torch
+    import nn_modules
+    from nn_modules import AVHuBERTLipSync, RPPGModule, feature_squeeze
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
 try:
     import mediapipe as mp
     MEDIAPIPE_AVAILABLE = True
@@ -147,7 +156,7 @@ class FinalVideoDetector:
             return []
 
         results = []
-        tmp_dir = "/tmp/deepguard_video_frames"
+        tmp_dir = os.path.join(tempfile.gettempdir(), "deepguard_video_frames")
         os.makedirs(tmp_dir, exist_ok=True)
         sample_indices = np.linspace(0, len(frames) - 1, min(FULL_FORENSICS_FRAME_COUNT, len(frames))).astype(int)
 
@@ -580,6 +589,80 @@ class FinalVideoDetector:
             return {"available": False, "reason": str(e), "score": 0.0}
 
     # ------------------------------------------------------------------
+    # V2: Lip-sync and rPPG feature extraction
+    # ------------------------------------------------------------------
+    def _extract_v2_video_features(self, frames: List[np.ndarray],
+                                   audio_path: Optional[str] = None) -> Dict[str, Any]:
+        """Extract V2 lip-sync and rPPG features from video frames."""
+        v2_result = {
+            "lip_sync_score": None,
+            "rppg_score": None,
+            "v2_available": False,
+        }
+        if not TORCH_AVAILABLE or not frames:
+            return v2_result
+
+        try:
+            device = torch.device("cpu")
+
+            # AV-HuBERT lip-sync verification (simplified: use frame similarity as proxy)
+            try:
+                # Compute frame-to-frame visual similarity as lip-sync proxy
+                if len(frames) >= 2:
+                    prev_gray = cv2.cvtColor(frames[0], cv2.COLOR_BGR2GRAY)
+                    sync_scores = []
+                    for i in range(1, min(len(frames), 12)):
+                        curr_gray = cv2.cvtColor(frames[i], cv2.COLOR_BGR2GRAY)
+                        # Resize for consistent comparison
+                        prev_small = cv2.resize(prev_gray, (64, 64))
+                        curr_small = cv2.resize(curr_gray, (64, 64))
+                        # Structural similarity
+                        diff = cv2.absdiff(prev_small, curr_small)
+                        similarity = 1.0 - float(np.mean(diff)) / 255.0
+                        sync_scores.append(similarity)
+                        prev_gray = curr_gray
+
+                    if sync_scores:
+                        # Low variance in visual similarity = good sync (authentic)
+                        # High variance = potential lip-sync manipulation
+                        sync_var = float(np.var(sync_scores))
+                        lip_sync_score = float(np.clip(sync_var * 10, 0.0, 1.0))
+                        v2_result["lip_sync_score"] = round(lip_sync_score, 4)
+            except Exception as e:
+                logger.debug("V2 lip-sync proxy failed: %s", e)
+
+            # rPPG pulse extraction (simplified: use green channel temporal variance)
+            try:
+                green_means = []
+                for frame in frames[:24]:
+                    green_channel = frame[:, :, 1]  # BGR -> G
+                    # Focus on upper face region (forehead area)
+                    h, w = green_channel.shape
+                    forehead = green_channel[int(h*0.1):int(h*0.4), int(w*0.2):int(w*0.8)]
+                    green_means.append(float(np.mean(forehead)))
+
+                if len(green_means) >= 6:
+                    green_signal = np.array(green_means)
+                    # Compute regularity of temporal pulse signal
+                    signal_std = float(np.std(green_signal))
+                    signal_mean = float(np.mean(green_signal)) + 1e-10
+                    cv = signal_std / signal_mean
+                    # Natural faces show regular pulse (moderate CV)
+                    # Deepfakes often show flat or irregular pulse
+                    rppg_score = float(np.clip(1.0 - abs(cv - 0.05) / 0.1, 0.0, 1.0))
+                    v2_result["rppg_score"] = round(rppg_score, 4)
+            except Exception as e:
+                logger.debug("V2 rPPG proxy failed: %s", e)
+
+            v2_result["v2_available"] = any(v is not None for k, v in v2_result.items()
+                                             if k != "v2_available" and v is not None)
+
+        except Exception as e:
+            logger.error("V2 video feature extraction failed: %s", e)
+
+        return v2_result
+
+    # ------------------------------------------------------------------
     def predict(self, video_path: str) -> Dict[str, Any]:
         if not os.path.exists(video_path):
             return {"error": "file_not_found", "path": video_path}
@@ -609,6 +692,9 @@ class FinalVideoDetector:
 
         # Audio-visual cross-modal sync
         av_sync = self._audio_visual_sync(video_path, fps)
+
+        # V2: Extract lip-sync and rPPG features
+        v2_features = self._extract_v2_video_features(frames, audio_path=video_path if LIBROSA_AVAILABLE else None)
 
         # --- Aggregate per-frame family scores ---
         global_scores, splice_scores, face_scores = [], [], []
@@ -693,6 +779,27 @@ class FinalVideoDetector:
             w_avsync * av_sync_score
         )
 
+        # V2: Augment with lip-sync and rPPG features
+        v2_augmented = False
+        if v2_features.get("v2_available"):
+            v2_components = []
+            if v2_features.get("lip_sync_score") is not None:
+                v2_components.append(v2_features["lip_sync_score"])
+            if v2_features.get("rppg_score") is not None:
+                v2_components.append(v2_features["rppg_score"])
+            if v2_components:
+                v2_physio_score = float(np.mean(v2_components))
+                # Blend V2 physiological features into temporal score (15% weight)
+                temporal_score = 0.85 * temporal_score + 0.15 * v2_physio_score
+                fused_score = (
+                    w_global * global_score +
+                    w_splice * splice_score +
+                    w_face * face_swap_score +
+                    w_temporal * temporal_score +
+                    w_avsync * av_sync_score
+                )
+                v2_augmented = True
+
         overall_score = max(global_score, splice_score, face_swap_score, temporal_score, av_sync_score)
 
         # 4-tier verdict
@@ -729,6 +836,10 @@ class FinalVideoDetector:
             notes.append(f"Temporal analysis unavailable: {temporal.get('reason', 'unknown')}.")
         if not av_sync.get("available"):
             notes.append(f"Audio-visual sync unavailable: {av_sync.get('reason', 'unknown')}.")
+        if v2_augmented:
+            notes.append("V2 physiological features (lip-sync proxy, rPPG pulse) integrated.")
+        elif not TORCH_AVAILABLE:
+            notes.append("V2 features skipped: PyTorch not available.")
 
         verdict = VideoVerdict(
             label=label,
@@ -743,6 +854,9 @@ class FinalVideoDetector:
                 "audio_visual_sync": round(av_sync_score, 3),
                 "fused_score": round(fused_score, 3),
                 "temporal_details": temporal,
+                "v2_lip_sync": v2_features.get("lip_sync_score"),
+                "v2_rppg": v2_features.get("rppg_score"),
+                "v2_augmented": v2_augmented,
             },
             frames_analyzed=len(frames),
             suspicious_intervals=suspicious_intervals,

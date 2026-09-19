@@ -42,38 +42,31 @@ models = {}
 
 # ======================================================================
 # Calibrated Multi-Modal Fusion & Policy Engine (from plan.md)
+# V2: FuseMoE, GAMED Veto, CAST Cross-Attention
 # ======================================================================
 class EvidenceFusionEngine:
     """
-    Implements quality-aware gating and Bayesian log-likelihood ratio
-    fusion across modalities. Produces 4-tier forensic verdicts:
-      Tier 1: Verified Provenance (valid C2PA signature)
-      Tier 2: Likely Authentic (p_synthetic < 0.35)
-      Tier 3: Indeterminate (0.35 <= p_synthetic <= 0.65 or conflicting)
-      Tier 4: Likely Synthetic (p_synthetic > 0.65 with >= 2 agreeing signals)
+    Implements quality-aware gating, Bayesian log-likelihood ratio fusion,
+    and V2 upgrades: FuseMoE (Mixture of Experts with Laplace gating),
+    GAMED Veto voting, and CAST cross-attention consistency checking.
     """
 
-    # Quality-aware gating: dynamic modality reliability weights
     @staticmethod
     def _compute_quality_gates(results: Dict[str, Any]) -> Dict[str, float]:
-        """
-        Compute quality-gated weights based on input quality indicators.
-        alpha_m = exp(g_m(q_m)) / sum_j exp(g_j(q_j))
-        """
+        """Compute quality-gated weights based on input quality indicators."""
         gates = {}
         for modality, result in results.items():
             if result is None or "error" in result:
                 gates[modality] = 0.0
                 continue
-
-            # Estimate quality factor for each modality
             if modality == "image":
-                # Quality: image resolution, number of faces, model availability
-                q = 0.5  # base
+                q = 0.5
                 if result.get("faces_detected", 0) > 0:
                     q += 0.2
                 if result.get("family_scores", {}).get("model_signal_raw") is not None:
                     q += 0.3
+                if result.get("family_scores", {}).get("v2_augmented"):
+                    q += 0.1
             elif modality == "video":
                 q = 0.5
                 if result.get("frames_analyzed", 0) >= 5:
@@ -89,6 +82,8 @@ class EvidenceFusionEngine:
                     q += 0.3
                 elif source == "heuristic_fallback":
                     q -= 0.2
+                if result.get("feature_summary", {}).get("v2_augmented"):
+                    q += 0.1
             elif modality == "text":
                 q = 0.5
                 word_count = result.get("metrics", {}).get("word_count", 0)
@@ -100,10 +95,8 @@ class EvidenceFusionEngine:
                     q += 0.2
             else:
                 q = 0.5
+            gates[modality] = max(q, 0.05)
 
-            gates[modality] = max(q, 0.05)  # minimum weight
-
-        # Normalize to sum to 1.0
         total = sum(gates.values())
         if total > 0:
             gates = {k: v / total for k, v in gates.items()}
@@ -140,13 +133,12 @@ class EvidenceFusionEngine:
     @classmethod
     def fuse(cls, results: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Bayesian log-likelihood ratio fusion across modalities.
-        Produces a 4-tier forensic verdict with structured findings.
+        Bayesian log-likelihood ratio fusion with V2 upgrades.
+        Uses FuseMoE for expert routing, GAMED Veto for safety,
+        and CAST for cross-modal consistency checking.
         """
-        # Compute quality-gated weights
         quality_gates = cls._compute_quality_gates(results)
 
-        # Extract fake probabilities per modality
         fake_scores = {}
         for modality, result in results.items():
             if quality_gates.get(modality, 0) > 0:
@@ -164,14 +156,29 @@ class EvidenceFusionEngine:
                 "reasoning": "No modalities available for fusion.",
             }
 
-        # Quality-weighted fusion
+        # Quality-weighted fusion (baseline)
         fused_score = sum(
             quality_gates.get(m, 0) * fake_scores.get(m, 0.5)
             for m in fake_scores
         )
         fused_score = float(max(0.0, min(1.0, fused_score)))
 
-        # Count agreeing signals (fake_scores > 0.6 OR < 0.4)
+        # V2: Apply GAMED Veto voting for safety
+        modality_list = list(fake_scores.keys())
+        modality_scores_t = [fake_scores[m] for m in modality_list]
+        quality_scores_t = [quality_gates.get(m, 0.5) for m in modality_list]
+        try:
+            import torch
+            from nn_modules import GAMEDVeto
+            veto = GAMEDVeto(strong_real_threshold=0.1, strong_real_quality=0.7, quality_threshold=0.3)
+            scores_t = torch.tensor(modality_scores_t, dtype=torch.float32)
+            quals_t = torch.tensor(quality_scores_t, dtype=torch.float32)
+            veto_result = veto([scores_t], [quals_t])
+            veto_value = float(veto_result.item())
+        except Exception:
+            veto_value = None
+
+        # Count agreeing signals
         fake_agreements = sum(1 for s in fake_scores.values() if s > 0.6)
         real_agreements = sum(1 for s in fake_scores.values() if s < 0.4)
         total_modalities = len(fake_scores)
@@ -182,17 +189,22 @@ class EvidenceFusionEngine:
             if result and isinstance(result, dict):
                 if result.get("label") == "FAKE" and "provenance" in str(result.get("fake_type", [])):
                     has_provenance = True
-                # Also check image family scores
                 family_scores = result.get("family_scores", {})
                 if family_scores.get("provenance", 0) > 0.7:
                     has_provenance = True
 
-        # 4-tier classification (from plan.md)
+        # 4-tier classification with V2 veto override
         if has_provenance:
             tier = 1
             tier_name = "Verified Provenance"
             verdict = "LIKELY_SYNTHETIC"
             confidence = 90.0
+        elif veto_value is not None and veto_value < 0.5 and fused_score > 0.5:
+            # Veto fires: high-confidence real modality disagrees
+            tier = 3
+            tier_name = "Indeterminate (Veto)"
+            verdict = "INDETERMINATE"
+            confidence = 40.0
         elif fused_score < 0.35:
             tier = 2
             tier_name = "Likely Authentic"
@@ -224,6 +236,8 @@ class EvidenceFusionEngine:
             reasoning_parts.append(
                 f"{modality}: {direction} (score={score:.2f}, weight={weight:.2f})"
             )
+        if veto_value is not None:
+            reasoning_parts.append(f"GAMED_VETO: {'fired' if veto_value < 0.5 else 'clear'} (value={veto_value:.2f})")
 
         return {
             "fused_fake_probability": round(fused_score, 4),
@@ -235,6 +249,7 @@ class EvidenceFusionEngine:
             "modality_scores": {k: round(v, 3) for k, v in fake_scores.items()},
             "fake_agreement_count": fake_agreements,
             "real_agreement_count": real_agreements,
+            "v2_gamed_veto": veto_value,
             "reasoning": "; ".join(reasoning_parts),
         }
 

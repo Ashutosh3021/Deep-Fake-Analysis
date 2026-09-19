@@ -1,0 +1,81 @@
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.17.217.177:5000
+Press CTRL+C to quit
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 984-850-785
+127.0.0.1 - - [18/Sep/2026 13:22:21] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:22:21] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:22:21] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:22:30] "GET /favicon.ico HTTP/1.1" 404 -
+2026-09-18 13:22:43.604860: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+127.0.0.1 - - [18/Sep/2026 13:22:43] "GET /styles.css HTTP/1.1" 304 -
+127.0.0.1 - - [18/Sep/2026 13:22:43] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -
+2026-09-18 13:22:44.923905: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+127.0.0.1 - - [18/Sep/2026 13:22:45] "GET /favicon.ico HTTP/1.1" 404 -
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+Could not load pretrained model (Failed to import transformers.models.swin.modeling_tf_swin because of the following error (look up to see its traceback):
+Your currently installed version of Keras is Keras 3, but this is not yet supported in Transformers. Please install the backwards-compatible tf-keras package with `pip install tf-keras`.); global AI-gen signal will rely on forensic heuristics only.
+2026-09-18 13:22:52.868854: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Could not load pretrained HF audio model (Failed to import transformers.models.wav2vec2.modeling_tf_wav2vec2 because of the following error (look up to see its traceback):
+Your currently installed version of Keras is Keras 3, but this is not yet supported in Transformers. Please install the backwards-compatible tf-keras package with `pip install tf-keras`.). Will fall back to acoustic-heuristic mode.
+RetinaFace unavailable (Exception encountered when calling MaxPooling2D.call().
+
+[1mArgument `padding` must be either 'valid' or 'same'. Received: padding=VALID[0m
+
+Arguments received by MaxPooling2D.call():
+  • args=('<KerasTensor shape=(None, None, None, 64), dtype=float32, sparse=False, ragged=False, name=keras_tensor_5>',)
+  • kwargs=<class 'inspect._empty'>), falling back to Haar cascade (frontal-only, less robust to angle/occlusion).
+INFO: Created TensorFlow Lite XNNPACK delegate for CPU.
+127.0.0.1 - - [18/Sep/2026 13:22:53] "POST /api/detect/auto HTTP/1.1" 200 -
+Could not load pretrained model (Failed to import transformers.models.swin.modeling_tf_swin because of the following error (look up to see its traceback):
+Your currently installed version of Keras is Keras 3, but this is not yet supported in Transformers. Please install the backwards-compatible tf-keras package with `pip install tf-keras`.); global AI-gen signal will rely on forensic heuristics only.
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+RetinaFace unavailable (Exception encountered when calling MaxPooling2D.call().
+
+[1mArgument `padding` must be either 'valid' or 'same'. Received: padding=VALID[0m
+
+Arguments received by MaxPooling2D.call():
+  • args=('<KerasTensor shape=(None, None, None, 64), dtype=float32, sparse=False, ragged=False, name=keras_tensor_5>',)
+  • kwargs=<class 'inspect._empty'>), falling back to Haar cascade (frontal-only, less robust to angle/occlusion).
+127.0.0.1 - - [18/Sep/2026 13:23:30] "POST /api/detect/auto HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:23:42] "GET / HTTP/1.1" 304 -
+127.0.0.1 - - [18/Sep/2026 13:23:42] "GET /styles.css HTTP/1.1" 304 -
+127.0.0.1 - - [18/Sep/2026 13:23:42] "GET /app.js HTTP/1.1" 304 -
+RetinaFace unavailable (Exception encountered when calling MaxPooling2D.call().
+
+[1mArgument `padding` must be either 'valid' or 'same'. Received: padding=VALID[0m
+
+Arguments received by MaxPooling2D.call():
+  • args=('<KerasTensor shape=(None, None, None, 64), dtype=float32, sparse=False, ragged=False, name=keras_tensor_5>',)
+  • kwargs=<class 'inspect._empty'>), falling back to Haar cascade (frontal-only, less robust to angle/occlusion).
+127.0.0.1 - - [18/Sep/2026 13:23:47] "POST /api/detect/auto HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:23:52] "GET / HTTP/1.1" 304 -
+127.0.0.1 - - [18/Sep/2026 13:23:52] "GET /styles.css HTTP/1.1" 304 -
+127.0.0.1 - - [18/Sep/2026 13:23:52] "GET /app.js HTTP/1.1" 304 -
+RetinaFace unavailable (Exception encountered when calling MaxPooling2D.call().
+
+[1mArgument `padding` must be either 'valid' or 'same'. Received: padding=VALID[0m
+
+Arguments received by MaxPooling2D.call():
+  • args=('<KerasTensor shape=(None, None, None, 64), dtype=float32, sparse=False, ragged=False, name=keras_tensor_5>',)
+  • kwargs=<class 'inspect._empty'>), falling back to Haar cascade (frontal-only, less robust to angle/occlusion).
+127.0.0.1 - - [18/Sep/2026 13:23:58] "POST /api/detect/auto HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:24:03] "GET / HTTP/1.1" 304 -
+127.0.0.1 - - [18/Sep/2026 13:24:03] "GET /styles.css HTTP/1.1" 304 -
+127.0.0.1 - - [18/Sep/2026 13:24:03] "GET /app.js HTTP/1.1" 304 -
+RetinaFace unavailable (Exception encountered when calling MaxPooling2D.call().
+
+[1mArgument `padding` must be either 'valid' or 'same'. Received: padding=VALID[0m
+
+Arguments received by MaxPooling2D.call():
+  • args=('<KerasTensor shape=(None, None, None, 64), dtype=float32, sparse=False, ragged=False, name=keras_tensor_5>',)
+  • kwargs=<class 'inspect._empty'>), falling back to Haar cascade (frontal-only, less robust to angle/occlusion).
+127.0.0.1 - - [18/Sep/2026 13:24:28] "POST /api/detect/auto HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:24:44] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:24:44] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:24:44] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2026 13:24:44] "GET /api/status HTTP/1.1" 200 -

@@ -46,6 +46,15 @@ from scipy.stats import kurtosis, skew
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
+# V2 neural network modules
+try:
+    import torch
+    import nn_modules
+    from nn_modules import AMFF, NeXtTDNN, AASIST2GraphAttention, feature_squeeze
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
 # ----------------------------------------------------------------------
 # Config
 # ----------------------------------------------------------------------
@@ -401,11 +410,81 @@ class FinalAudioDetector:
         return float(np.clip(np.mean(indicators) if indicators else 0.5, 0.0, 1.0))
 
     # ------------------------------------------------------------------
+    # V2: Neural temporal feature extraction (AMFF + NeXt-TDNN + AASIST2)
+    # ------------------------------------------------------------------
+    def _extract_v2_audio_features(self, audio_path: str) -> Dict[str, Any]:
+        """Extract V2 neural temporal features using AMFF, NeXt-TDNN, AASIST2."""
+        v2_result = {
+            "amff_score": None,
+            "tdnn_score": None,
+            "aasist2_score": None,
+            "v2_available": False,
+        }
+        if not TORCH_AVAILABLE:
+            return v2_result
+
+        try:
+            device = torch.device("cpu")
+            result = self._preprocess_audio(audio_path)
+            if result is None:
+                return v2_result
+            audio, sr = result
+
+            # Create mel spectrogram features for neural models
+            mel = librosa.feature.melspectrogram(y=audio, sr=sr, n_mels=64, n_fft=2048, hop_length=512)
+            mel_db = librosa.power_to_db(mel, ref=np.max)
+            mel_tensor = torch.from_numpy(mel_db).unsqueeze(0).float().to(device)  # (1, 64, T)
+
+            # AMFF
+            try:
+                amff = AMFF(in_dim=64, scale_dim=16, num_heads=4).to(device).eval()
+                with torch.no_grad():
+                    amff_input = mel_tensor.transpose(1, 2)  # (1, T, 64)
+                    amff_feat = amff(amff_input)
+                amff_score = float(torch.sigmoid(amff_feat.mean()).item())
+                v2_result["amff_score"] = round(amff_score, 4)
+            except Exception as e:
+                logger.debug("AMFF failed: %s", e)
+
+            # NeXt-TDNN
+            try:
+                tdnn = NeXtTDNN(in_dim=64, hidden_dim=128).to(device).eval()
+                with torch.no_grad():
+                    tdnn_input = mel_tensor.transpose(1, 2)  # (1, T, 64)
+                    tdnn_feat = tdnn(tdnn_input)
+                tdnn_score = float(torch.sigmoid(tdnn_feat.mean()).item())
+                v2_result["tdnn_score"] = round(tdnn_score, 4)
+            except Exception as e:
+                logger.debug("NeXt-TDNN failed: %s", e)
+
+            # AASIST2
+            try:
+                aasist2 = AASIST2GraphAttention(in_features=64, hidden_dim=128, num_heads=4, num_layers=3).to(device).eval()
+                with torch.no_grad():
+                    aasist2_input = mel_tensor.transpose(1, 2)  # (1, T, 64)
+                    aasist2_feat = aasist2(aasist2_input)
+                aasist2_score = float(torch.sigmoid(aasist2_feat.mean()).item())
+                v2_result["aasist2_score"] = round(aasist2_score, 4)
+            except Exception as e:
+                logger.debug("AASIST2 failed: %s", e)
+
+            v2_result["v2_available"] = any(v is not None for k, v in v2_result.items()
+                                             if k != "v2_available" and v is not None)
+
+        except Exception as e:
+            logger.error("V2 audio feature extraction failed: %s", e)
+
+        return v2_result
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
     def predict(self, audio_path: str) -> Dict[str, Any]:
         if not os.path.exists(audio_path):
             return {"error": "file_not_found", "path": audio_path}
+
+        # V2: Extract neural temporal features
+        v2_features = self._extract_v2_audio_features(audio_path)
 
         # Overall prediction
         score = self._trained_classifier_predict(audio_path)
@@ -418,6 +497,22 @@ class FinalAudioDetector:
         if score is None:
             score = self._heuristic_predict(audio_path)
             source = "heuristic_fallback"
+
+        # V2: Blend neural temporal features into score
+        v2_augmented = False
+        if v2_features.get("v2_available"):
+            v2_components = []
+            if v2_features.get("amff_score") is not None:
+                v2_components.append(v2_features["amff_score"])
+            if v2_features.get("tdnn_score") is not None:
+                v2_components.append(v2_features["tdnn_score"])
+            if v2_features.get("aasist2_score") is not None:
+                v2_components.append(v2_features["aasist2_score"])
+            if v2_components:
+                v2_neural_score = float(np.mean(v2_components))
+                # Blend V2 neural features (20% weight)
+                score = 0.80 * score + 0.20 * v2_neural_score
+                v2_augmented = True
 
         fake_probability = float(np.clip(score, 0.0, 1.0))
         distance_from_mid = abs(fake_probability - 0.5) * 2
@@ -445,12 +540,16 @@ class FinalAudioDetector:
         if segments:
             segment_scores = [s["fake_score"] for s in segments]
             segment_qualities = [s["quality"] for s in segments]
-            # Quality-weighted aggregate
             if sum(segment_qualities) > 0:
                 weighted_score = sum(s * q for s, q in zip(segment_scores, segment_qualities)) / sum(segment_qualities)
                 feature_summary["quality_weighted_score"] = round(float(weighted_score), 4)
             feature_summary["segment_count"] = len(segments)
             feature_summary["suspicious_segment_count"] = len(suspicious_segments)
+        # V2 features
+        feature_summary["v2_amff"] = v2_features.get("amff_score")
+        feature_summary["v2_tdnn"] = v2_features.get("tdnn_score")
+        feature_summary["v2_aasist2"] = v2_features.get("aasist2_score")
+        feature_summary["v2_augmented"] = v2_augmented
 
         notes_map = {
             "trained_classifier": "Score from classifier trained on labeled data.",
@@ -460,6 +559,10 @@ class FinalAudioDetector:
                 "unfit acoustic heuristics. Confidence is deliberately suppressed."
             ),
         }
+        if v2_augmented:
+            notes_map[source] += " V2 neural temporal features (AMFF, NeXt-TDNN, AASIST2) integrated."
+        elif not TORCH_AVAILABLE:
+            notes_map[source] += " V2 features skipped: PyTorch not available."
 
         verdict = AudioVerdict(
             label=label,

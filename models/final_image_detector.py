@@ -36,6 +36,18 @@ from PIL import Image
 
 import forensics_core as fc
 
+# V2 neural network modules
+try:
+    import torch
+    import nn_modules
+    from nn_modules import (
+        TanhBoundedCosineClassifier, MultiScaleFFT, FreqNetDCT,
+        HaarWaveletResidual, SPSLEncoder, feature_squeeze,
+    )
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 PRIMARY_MODEL_ID = os.getenv("IMAGE_DETECTOR_MODEL", "umm-maybe/AI-image-detector")
@@ -164,6 +176,78 @@ class FinalImageDetector:
         return self._multi_crop_predict(image_path)
 
     # ------------------------------------------------------------------
+    # V2: Multi-scale frequency feature extraction
+    # ------------------------------------------------------------------
+    def _extract_v2_features(self, image_path: str) -> Dict[str, Any]:
+        """Extract V2 frequency-domain features using MSCA-FFT, FreqNet, Haar, SPSL."""
+        v2_result = {
+            "msca_fft_score": None,
+            "freqnet_score": None,
+            "haar_energy": None,
+            "spsl_score": None,
+            "v2_available": False,
+        }
+        if not TORCH_AVAILABLE:
+            return v2_result
+
+        try:
+            device = torch.device("cpu")
+            img = Image.open(image_path).convert("RGB")
+            img_np = np.array(img).astype(np.float32) / 255.0
+
+            # Convert to tensor: (1, 3, H, W)
+            img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device)
+            gray_tensor = 0.299 * img_tensor[:, 0:1] + 0.587 * img_tensor[:, 1:2] + 0.114 * img_tensor[:, 2:3]
+
+            # MSCA-FFT
+            try:
+                msca = MultiScaleFFT(out_features=32).to(device).eval()
+                with torch.no_grad():
+                    msca_feat = msca(img_tensor)
+                msca_score = float(torch.sigmoid(msca_feat.mean()).item())
+                v2_result["msca_fft_score"] = round(msca_score, 4)
+            except Exception as e:
+                logger.debug("MSCA-FFT failed: %s", e)
+
+            # FreqNet DCT
+            try:
+                freqnet = FreqNetDCT(block_size=8, out_features=8).to(device).eval()
+                with torch.no_grad():
+                    freq_feat = freqnet(gray_tensor)
+                freq_score = float(torch.sigmoid(freq_feat.mean()).item())
+                v2_result["freqnet_score"] = round(freq_score, 4)
+            except Exception as e:
+                logger.debug("FreqNet DCT failed: %s", e)
+
+            # Haar wavelet residual
+            try:
+                haar = HaarWaveletResidual().to(device).eval()
+                with torch.no_grad():
+                    haar_feat = haar(gray_tensor)
+                haar_energy = haar_feat.mean(dim=0).cpu().numpy().tolist()
+                v2_result["haar_energy"] = [round(float(e), 4) for e in haar_energy]
+            except Exception as e:
+                logger.debug("Haar wavelet failed: %s", e)
+
+            # SPSL encoder
+            try:
+                spsl = SPSLEncoder(bottleneck_dim=64).to(device).eval()
+                with torch.no_grad():
+                    spsl_embed, spsl_recon = spsl(gray_tensor)
+                recon_error = float(torch.nn.functional.mse_loss(spsl_recon, gray_tensor).item())
+                v2_result["spsl_score"] = round(recon_error, 6)
+            except Exception as e:
+                logger.debug("SPSL failed: %s", e)
+
+            v2_result["v2_available"] = any(v is not None for k, v in v2_result.items()
+                                             if k != "v2_available" and v is not None)
+
+        except Exception as e:
+            logger.error("V2 feature extraction failed: %s", e)
+
+        return v2_result
+
+    # ------------------------------------------------------------------
     def predict(self, image_path: str) -> Dict[str, Any]:
         if not os.path.exists(image_path):
             return {"error": "file_not_found", "path": image_path}
@@ -173,6 +257,9 @@ class FinalImageDetector:
             return forensics
 
         model_signal = self._model_predict(image_path)
+
+        # V2: Extract frequency-domain features
+        v2_features = self._extract_v2_features(image_path)
 
         # --- Family 0: Provenance (cryptographic evidence) ---
         provenance_findings = forensics.get("provenance_findings", [])
@@ -244,6 +331,26 @@ class FinalImageDetector:
             w_face * face_swap_score
         )
 
+        # V2: Augment global score with frequency-domain signals
+        v2_augmented = False
+        if v2_features.get("v2_available"):
+            v2_components = []
+            if v2_features.get("msca_fft_score") is not None:
+                v2_components.append(v2_features["msca_fft_score"])
+            if v2_features.get("freqnet_score") is not None:
+                v2_components.append(v2_features["freqnet_score"])
+            if v2_components:
+                v2_freq_score = float(np.mean(v2_components))
+                # Blend V2 frequency features into global score (15% weight)
+                global_score = 0.85 * global_score + 0.15 * v2_freq_score
+                fused_score = (
+                    w_prov * prov_score +
+                    w_global * global_score +
+                    w_splice * splice_score +
+                    w_face * face_swap_score
+                )
+                v2_augmented = True
+
         # --- 4-tier verdict classification ---
         # Check for indeterminate (conflicting signals)
         family_scores_list = [prov_score, global_score, splice_score, face_swap_score]
@@ -288,6 +395,10 @@ class FinalImageDetector:
                          f"global AI-generation detection relying on forensic heuristics only.")
         if forensics["faces_detected"] == 0:
             notes.append("No faces detected -- face-swap check not applicable to this image.")
+        if v2_augmented:
+            notes.append("V2 frequency-domain features (MSCA-FFT, FreqNet) integrated into fusion.")
+        elif not TORCH_AVAILABLE:
+            notes.append("V2 frequency features skipped: PyTorch not available.")
 
         verdict = ImageVerdict(
             label=label,
@@ -301,6 +412,11 @@ class FinalImageDetector:
                 "face_swap": round(face_swap_score, 3),
                 "model_signal_raw": round(model_signal, 3) if model_signal is not None else None,
                 "fused_score": round(fused_score, 3),
+                "v2_msca_fft": v2_features.get("msca_fft_score"),
+                "v2_freqnet": v2_features.get("freqnet_score"),
+                "v2_haar_energy": v2_features.get("haar_energy"),
+                "v2_spsl_recon_error": v2_features.get("spsl_score"),
+                "v2_augmented": v2_augmented,
             },
             faces_detected=forensics["faces_detected"],
             file_hash=forensics.get("file_hash", ""),

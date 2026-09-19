@@ -1,0 +1,15 @@
+Starting DeepGuard AI v3.0...
+Upload folder: uploads
+API endpoints:
+  - POST /api/detect/image
+  - POST /api/detect/audio
+  - POST /api/detect/video
+  - POST /api/detect/text
+  - POST /api/detect/auto
+  - POST /api/detect/fusion   <- NEW: Multi-modal fusion
+  - POST /api/query
+  - GET  /api/status
+
+Dashboard available at: http://localhost:5000
+ * Serving Flask app 'api'
+ * Debug mode: on
