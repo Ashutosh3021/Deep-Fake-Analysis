@@ -401,7 +401,7 @@ def error_level_analysis(img_path: str, quality: int = 90) -> Finding:
         worst_idx = int(np.argmax(np.abs(z_scores)))
         worst_z = float(np.abs(z_scores[worst_idx]))
 
-        score = float(np.clip((worst_z - 1.5) / 3.0, 0.0, 1.0))
+        score = float(np.clip((worst_z - 3.5) / 4.0, 0.0, 1.0))
         region = cell_boxes[worst_idx] if score > 0.3 else None
 
         desc = (f"Localized recompression-error anomaly detected (region stands out {worst_z:.1f} std "
@@ -548,7 +548,7 @@ def noise_residual_consistency(gray: np.ndarray) -> Finding:
         worst_idx = int(np.argmax(np.abs(z_scores)))
         worst_z = float(np.abs(z_scores[worst_idx]))
 
-        score = float(np.clip((worst_z - 1.5) / 3.0, 0.0, 1.0))
+        score = float(np.clip((worst_z - 3.5) / 4.0, 0.0, 1.0))
         region = cell_boxes[worst_idx] if score > 0.3 else None
 
         # Also compute total noise energy -- very low total residual variance

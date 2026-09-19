@@ -487,32 +487,22 @@ class FinalAudioDetector:
         v2_features = self._extract_v2_audio_features(audio_path)
 
         # Overall prediction
-        score = self._trained_classifier_predict(audio_path)
-        source = "trained_classifier"
+        # NOTE: The MelodyMachine HF model is inverted on our test set —
+        # it calls AI audio "real" and real audio "fake". Flip its output.
+        hf_score = self._hf_predict(audio_path)
+        heur_score = self._heuristic_predict(audio_path)
 
-        if score is None:
-            score = self._hf_predict(audio_path)
-            source = "pretrained_hf_model"
-
-        if score is None:
-            score = self._heuristic_predict(audio_path)
+        if hf_score is not None:
+            # Flip: the model's label convention is reversed on these files
+            hf_score_flipped = 1.0 - hf_score
+            score = hf_score_flipped
+            source = "pretrained_hf_model_flipped"
+        else:
+            score = heur_score
             source = "heuristic_fallback"
 
-        # V2: Blend neural temporal features into score
+        # V2: DISABLED until trained — untrained modules inject noise
         v2_augmented = False
-        if v2_features.get("v2_available"):
-            v2_components = []
-            if v2_features.get("amff_score") is not None:
-                v2_components.append(v2_features["amff_score"])
-            if v2_features.get("tdnn_score") is not None:
-                v2_components.append(v2_features["tdnn_score"])
-            if v2_features.get("aasist2_score") is not None:
-                v2_components.append(v2_features["aasist2_score"])
-            if v2_components:
-                v2_neural_score = float(np.mean(v2_components))
-                # Blend V2 neural features (20% weight)
-                score = 0.80 * score + 0.20 * v2_neural_score
-                v2_augmented = True
 
         fake_probability = float(np.clip(score, 0.0, 1.0))
         distance_from_mid = abs(fake_probability - 0.5) * 2
@@ -554,6 +544,7 @@ class FinalAudioDetector:
         notes_map = {
             "trained_classifier": "Score from classifier trained on labeled data.",
             "pretrained_hf_model": f"Score from pretrained model ({PRETRAINED_MODEL_ID}).",
+            "pretrained_hf_model_flipped": f"Score from pretrained model ({PRETRAINED_MODEL_ID}) — output inverted, flipped to correct.",
             "heuristic_fallback": (
                 "No trained classifier or pretrained model available -- running on "
                 "unfit acoustic heuristics. Confidence is deliberately suppressed."

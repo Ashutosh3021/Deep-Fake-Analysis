@@ -770,7 +770,7 @@ class FinalVideoDetector:
             fired_families.append("audio_visual_desync")
 
         # --- Calibrated evidence fusion ---
-        w_global, w_splice, w_face, w_temporal, w_avsync = 0.25, 0.20, 0.20, 0.20, 0.15
+        w_global, w_splice, w_face, w_temporal, w_avsync = 0.20, 0.20, 0.20, 0.20, 0.20
         fused_score = (
             w_global * global_score +
             w_splice * splice_score +
@@ -779,46 +779,28 @@ class FinalVideoDetector:
             w_avsync * av_sync_score
         )
 
-        # V2: Augment with lip-sync and rPPG features
+        # V2: DISABLED until trained — untrained modules inject noise
         v2_augmented = False
-        if v2_features.get("v2_available"):
-            v2_components = []
-            if v2_features.get("lip_sync_score") is not None:
-                v2_components.append(v2_features["lip_sync_score"])
-            if v2_features.get("rppg_score") is not None:
-                v2_components.append(v2_features["rppg_score"])
-            if v2_components:
-                v2_physio_score = float(np.mean(v2_components))
-                # Blend V2 physiological features into temporal score (15% weight)
-                temporal_score = 0.85 * temporal_score + 0.15 * v2_physio_score
-                fused_score = (
-                    w_global * global_score +
-                    w_splice * splice_score +
-                    w_face * face_swap_score +
-                    w_temporal * temporal_score +
-                    w_avsync * av_sync_score
-                )
-                v2_augmented = True
 
         overall_score = max(global_score, splice_score, face_swap_score, temporal_score, av_sync_score)
 
-        # 4-tier verdict
+        # 4-tier verdict — conflict only among significant scores (> 0.3)
         family_scores_list = [global_score, splice_score, face_swap_score, temporal_score, av_sync_score]
-        non_zero_scores = [s for s in family_scores_list if s > 0.05]
-        has_conflict = len(non_zero_scores) >= 2 and max(non_zero_scores) - min(non_zero_scores) > 0.3
+        sig_scores = [s for s in family_scores_list if s > 0.3]
+        has_conflict = len(sig_scores) >= 2 and max(sig_scores) - min(sig_scores) > 0.3
 
-        if fired_families and not has_conflict and fused_score >= TIER_LIKELY_SYNTHETIC:
+        if fired_families:
             label = "FAKE"
             confidence = 50.0 + min(fused_score, 1.0) * 50.0
-        elif has_conflict or (0.3 <= fused_score <= 0.65):
+        elif has_conflict:
             label = "UNCERTAIN"
             confidence = 40.0 + fused_score * 20.0
+        elif fused_score >= 0.55:
+            label = "FAKE"
+            confidence = 50.0 + min(fused_score, 1.0) * 40.0
         elif not per_frame_results and not temporal.get("available"):
             label = "UNCERTAIN"
             confidence = 0.0
-        elif fired_families:
-            label = "FAKE"
-            confidence = 50.0 + min(overall_score, 1.0) * 50.0
         else:
             label = "AUTHENTIC"
             confidence = 50.0 + (1.0 - overall_score) * 50.0

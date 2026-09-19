@@ -55,8 +55,8 @@ PRIMARY_MODEL_ID = os.getenv("IMAGE_DETECTOR_MODEL", "umm-maybe/AI-image-detecto
 # Per-family fire thresholds
 PROVENANCE_FIRE_THRESHOLD = 0.70
 GLOBAL_MODEL_FIRE_THRESHOLD = 0.55
-SPLICE_FIRE_THRESHOLD = 0.45
-FACE_SWAP_FIRE_THRESHOLD = 0.45
+SPLICE_FIRE_THRESHOLD = 0.55
+FACE_SWAP_FIRE_THRESHOLD = 0.55
 
 # 4-tier verdict thresholds (from plan.md)
 TIER_LIKELY_SYNTHETIC = 0.65
@@ -331,54 +331,29 @@ class FinalImageDetector:
             w_face * face_swap_score
         )
 
-        # V2: Augment global score with frequency-domain signals
+        # V2: DISABLED until trained — untrained modules inject noise
         v2_augmented = False
-        if v2_features.get("v2_available"):
-            v2_components = []
-            if v2_features.get("msca_fft_score") is not None:
-                v2_components.append(v2_features["msca_fft_score"])
-            if v2_features.get("freqnet_score") is not None:
-                v2_components.append(v2_features["freqnet_score"])
-            if v2_components:
-                v2_freq_score = float(np.mean(v2_components))
-                # Blend V2 frequency features into global score (15% weight)
-                global_score = 0.85 * global_score + 0.15 * v2_freq_score
-                fused_score = (
-                    w_prov * prov_score +
-                    w_global * global_score +
-                    w_splice * splice_score +
-                    w_face * face_swap_score
-                )
-                v2_augmented = True
 
         # --- 4-tier verdict classification ---
-        # Check for indeterminate (conflicting signals)
+        # Conflict only among significant scores (> 0.3)
         family_scores_list = [prov_score, global_score, splice_score, face_swap_score]
-        non_zero_scores = [s for s in family_scores_list if s > 0.05]
-        has_conflict = len(non_zero_scores) >= 2 and max(non_zero_scores) - min(non_zero_scores) > 0.3
+        sig_scores = [s for s in family_scores_list if s > 0.3]
+        has_conflict = len(sig_scores) >= 2 and max(sig_scores) - min(sig_scores) > 0.3
 
         overall_score = max(global_score, splice_score, face_swap_score, prov_score)
-        is_borderline = any(
-            abs(overall_score - t) < LOW_CONFIDENCE_BAND
-            for t in (GLOBAL_MODEL_FIRE_THRESHOLD, SPLICE_FIRE_THRESHOLD, FACE_SWAP_FIRE_THRESHOLD)
-        )
 
         if prov_score >= PROVENANCE_FIRE_THRESHOLD and not fired_families:
-            # Verified provenance says AI -- trust it
             label = "FAKE"
             confidence = 85.0 + prov_score * 15.0
-        elif fired_families and not has_conflict:
-            # Multiple families agree or one strong signal
-            if fused_score >= TIER_LIKELY_SYNTHETIC:
-                label = "FAKE"
-                confidence = 50.0 + min(fused_score, 1.0) * 50.0
-            else:
-                label = "UNCERTAIN"
-                confidence = 50.0
-        elif has_conflict or is_borderline:
-            # Conflicting signals or borderline -- indeterminate
+        elif fired_families:
+            label = "FAKE"
+            confidence = 50.0 + min(fused_score, 1.0) * 50.0
+        elif has_conflict:
             label = "UNCERTAIN"
             confidence = 40.0 + fused_score * 20.0
+        elif fused_score >= 0.55:
+            label = "FAKE"
+            confidence = 50.0 + min(fused_score, 1.0) * 40.0
         else:
             label = "AUTHENTIC"
             confidence = 50.0 + (1.0 - fused_score) * 50.0
