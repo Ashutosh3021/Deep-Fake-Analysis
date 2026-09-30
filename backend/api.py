@@ -25,8 +25,16 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+# Absolute paths: the previous code used 'uploads' and '../dashboard' relative
+# to the process CWD, so running `python backend/api.py` from the repo root
+# (or a process manager with a different cwd) served nothing and every request
+# came back as a 404/502 instead of the dashboard.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, os.pardir))
+DASHBOARD_DIR = os.path.join(PROJECT_ROOT, "dashboard")
+
 # Configuration
-UPLOAD_FOLDER = 'uploads'
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'txt', 'pdf'}
 MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB max file size
 
@@ -349,11 +357,33 @@ def get_file_type(filename):
 # ======================================================================
 @app.route('/')
 def index():
-    return send_from_directory('../dashboard', 'index.html')
+    return send_from_directory(DASHBOARD_DIR, 'index.html')
 
 @app.route('/<path:filename>')
 def serve_static(filename):
-    return send_from_directory('../dashboard', filename)
+    return send_from_directory(DASHBOARD_DIR, filename)
+
+
+@app.errorhandler(404)
+def not_found(_e):
+    return jsonify({'error': 'Not found. Check the endpoint path.'}), 404
+
+
+@app.errorhandler(413)
+def too_large(_e):
+    return jsonify({'error': 'File exceeds the 100MB upload limit.'}), 413
+
+
+@app.errorhandler(Exception)
+def unhandled_error(e):
+    # Always answer JSON: an HTML 500 page from a proxy is what the dashboard
+    # was reporting as a bare "502" with no way to diagnose it.
+    code = getattr(e, 'code', 500)
+    try:
+        app.logger.exception("Unhandled error on %s", request.path)
+    except Exception:
+        pass
+    return jsonify({'error': f'{type(e).__name__}: {e}'}), code
 
 
 @app.route('/api/detect/image', methods=['POST'])
@@ -775,8 +805,18 @@ threading.Thread(target=_warmup_models, daemon=True).start()
 
 
 if __name__ == '__main__':
+    import socket
+
+    host = os.environ.get('HOST', '127.0.0.1')
+    port = int(os.environ.get('PORT', os.environ.get('FLASK_PORT', 5000)))
+    # Debug/reloader OFF by default: the reloader re-imports this module (which
+    # re-runs model warm-up in a second process) and drops in-flight requests,
+    # which surfaces in the browser as 502s. Set DEBUG=1 to opt back in.
+    debug = os.environ.get('DEBUG', '').lower() in ('1', 'true', 'yes')
+
     print("Starting DeepGuard AI v3.0...")
     print(f"Upload folder: {UPLOAD_FOLDER}")
+    print(f"Dashboard dir: {DASHBOARD_DIR}")
     print("API endpoints:")
     print("  - POST /api/detect/image")
     print("  - POST /api/detect/audio")
@@ -786,6 +826,17 @@ if __name__ == '__main__':
     print("  - POST /api/detect/fusion   <- NEW: Multi-modal fusion")
     print("  - POST /api/query")
     print("  - GET  /api/status")
-    print("\nDashboard available at: http://localhost:5000")
+    print(f"\nDashboard available at: http://localhost:{port}")
 
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            conflict = s.connect_ex((host if host != '0.0.0.0' else '127.0.0.1', port)) == 0
+    except OSError:
+        conflict = False
+    if conflict:
+        print(f"\nWARNING: something is already listening on {host}:{port}.")
+        print("         Flask will fail to bind and the browser will hit THAT")
+        print("         process instead (a common source of 502s). Free the port")
+        print("         or start with:  set PORT=5001 && python api.py")
+
+    app.run(host=host, port=port, debug=debug, threaded=True)

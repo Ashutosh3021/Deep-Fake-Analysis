@@ -33,9 +33,11 @@ on labeled real/fake data from your actual use case as soon as you have it.
 """
 
 import hashlib
+import importlib.util
 import io
 import json
 import logging
+import os
 import struct
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -588,39 +590,55 @@ def noise_residual_consistency(gray: np.ndarray) -> Finding:
 
 def detect_faces(img: np.ndarray) -> List[Dict[str, Any]]:
     """
-    Multi-face, angle/occlusion-robust detection using RetinaFace.
+    Face detection with two backends:
+
+      * haar (DEFAULT) -- OpenCV Haar cascade. Frontal-only but ~1ms and it
+        never pulls TensorFlow into the process. TensorFlow + RetinaFace cost
+        ~150MB RAM and 10-15s of CPU per image here, which is what used to
+        stall /api/detect/* until the client gave up with a 502.
+      * retinaface -- angle/occlusion robust, 5-point landmarks. Enable with
+        DEEPGUARD_FACE_DETECTOR=retinaface when face-swap accuracy matters
+        more than latency (and install tf-keras so Keras 3 doesn't break it).
+
     Returns list of {"box": (x,y,w,h), "landmarks": {...}, "confidence": float}.
-    Falls back to OpenCV Haar cascade (frontal-only, weaker) if RetinaFace
-    is unavailable, clearly flagged in the result.
     """
-    try:
-        from retinaface import RetinaFace
-        # RetinaFace expects RGB
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        detections = RetinaFace.detect_faces(rgb)
-        faces = []
-        if isinstance(detections, dict):
-            for _, d in detections.items():
-                x1, y1, x2, y2 = d["facial_area"]
-                faces.append({
-                    "box": (int(x1), int(y1), int(x2 - x1), int(y2 - y1)),
-                    "landmarks": d.get("landmarks", {}),
-                    "confidence": float(d.get("score", 1.0)),
-                    "detector": "retinaface",
-                })
-        return faces
-    except Exception as e:
-        logger.warning("RetinaFace unavailable (%s), falling back to Haar cascade "
-                        "(frontal-only, less robust to angle/occlusion).", e)
+    backend = os.environ.get("DEEPGUARD_FACE_DETECTOR", "haar").strip().lower()
+
+    if backend == "retinaface":
         try:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-            boxes = cascade.detectMultiScale(gray, 1.1, 4)
-            return [{"box": tuple(int(v) for v in b), "landmarks": {}, "confidence": 0.5,
-                      "detector": "haar_fallback"} for b in boxes]
-        except Exception as e2:
-            logger.error("Face detection completely failed: %s", e2)
-            return []
+            # RetinaFace (TF/Keras) only survives Keras 3 with the legacy
+            # Keras 2 shim; must be set before tensorflow is imported.
+            if importlib.util.find_spec("tf_keras") is not None:
+                os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
+            from retinaface import RetinaFace
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            detections = RetinaFace.detect_faces(rgb)
+            if isinstance(detections, dict):
+                faces = []
+                for _, d in detections.items():
+                    x1, y1, x2, y2 = d["facial_area"]
+                    faces.append({
+                        "box": (int(x1), int(y1), int(x2 - x1), int(y2 - y1)),
+                        "landmarks": d.get("landmarks", {}),
+                        "confidence": float(d.get("score", 1.0)),
+                        "detector": "retinaface",
+                    })
+                if faces:
+                    return faces
+                # no faces -> fall through to Haar (identical result, cheaper)
+        except Exception as e:
+            logger.warning("RetinaFace unavailable (%s), falling back to Haar cascade "
+                           "(frontal-only, less robust to angle/occlusion).", e)
+
+    try:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        boxes = cascade.detectMultiScale(gray, 1.1, 4)
+        return [{"box": tuple(int(v) for v in b), "landmarks": {}, "confidence": 0.5,
+                 "detector": "haar"} for b in boxes]
+    except Exception as e2:
+        logger.error("Face detection completely failed: %s", e2)
+        return []
 
 
 def face_blend_boundary_score(img: np.ndarray, box: Tuple[int, int, int, int]) -> Finding:

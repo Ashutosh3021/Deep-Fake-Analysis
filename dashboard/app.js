@@ -95,6 +95,7 @@ class DeepGuardDashboard {
 
     async processFile(file) {
         this.showLoading(true);
+        this.hideError();
 
         const formData = new FormData();
         formData.append('file', file);
@@ -105,25 +106,52 @@ class DeepGuardDashboard {
                 body: formData
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await this.parseJson(response);
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `Server returned HTTP ${response.status}`);
             }
 
-            const data = await response.json();
-
-            if (data.success) {
-                this.displayResults(data.result, file.name, data.file_type);
-                this.addToHistory(file.name, data.file_type, data.result);
-            } else {
-                throw new Error(data.error || 'Analysis failed');
-            }
+            this.displayResults(data.result, file.name, data.file_type);
+            this.addToHistory(file.name, data.file_type, data.result);
         } catch (error) {
             console.error('Error:', error);
-            // Fallback to mock results for demo
-            this.displayMockResults(file.name, this.getFileType(file.name));
+            this.showError(
+                `Analysis failed: ${error.message}. No verdict was produced.`
+            );
         } finally {
             this.showLoading(false);
         }
+    }
+
+    // Fetch a JSON body without throwing on non-2xx (so the real server error
+    // message reaches the UI instead of a generic "HTTP error!").
+    async parseJson(response) {
+        const text = await response.text();
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            const head = text.replace(/\s+/g, ' ').slice(0, 160);
+            throw new Error(head ? `Non-JSON response: ${head}` : `Empty response (HTTP ${response.status})`);
+        }
+    }
+
+    showError(message) {
+        // Hide any stale verdict from a previous run so a failed request can
+        // never be mistaken for a fresh result.
+        const results = document.getElementById('results-section');
+        if (results) results.style.display = 'none';
+
+        const el = document.getElementById('api-error');
+        if (!el) { alert(message); return; }
+        el.style.display = 'block';
+        el.textContent = message;
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    hideError() {
+        const el = document.getElementById('api-error');
+        if (el) { el.style.display = 'none'; el.textContent = ''; }
     }
 
     async analyzeText() {
@@ -136,6 +164,7 @@ class DeepGuardDashboard {
         }
 
         this.showLoading(true);
+        this.hideError();
 
         try {
             const response = await fetch(`${this.apiBaseUrl}/api/detect/text`, {
@@ -146,23 +175,18 @@ class DeepGuardDashboard {
                 body: JSON.stringify({ text: text })
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await this.parseJson(response);
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `Server returned HTTP ${response.status}`);
             }
 
-            const data = await response.json();
-
-            if (data.success) {
-                this.displayResults(data.result, 'Text Input', 'text');
-                this.addToHistory('Text Input', 'text', data.result);
-                textInput.value = '';
-            } else {
-                throw new Error(data.error || 'Analysis failed');
-            }
+            this.displayResults(data.result, 'Text Input', 'text');
+            this.addToHistory('Text Input', 'text', data.result);
+            textInput.value = '';
         } catch (error) {
             console.error('Error:', error);
-            // Fallback to mock results
-            this.displayMockResults('Text Input', 'text');
+            this.showError(`Text analysis failed: ${error.message}`);
         } finally {
             this.showLoading(false);
         }
@@ -210,10 +234,14 @@ class DeepGuardDashboard {
         const tierWarning = document.getElementById('tier-warning');
         const tierWarningText = document.getElementById('tier-warning-text');
 
-        // Determine tier from result
+        // Tier: prefer the value computed by the detector (authoritative),
+        // derive it only for older results that don't carry one.
         let tier = 3;
         let tierName = 'Indeterminate';
-        if (result.family_scores && result.family_scores.provenance > 0.7) {
+        if (typeof result.tier === 'number') {
+            tier = result.tier;
+            tierName = result.tier_name || 'Indeterminate';
+        } else if (result.family_scores && result.family_scores.provenance > 0.7) {
             tier = 1;
             tierName = 'Verified Provenance';
         } else if (verdictClass === 'real') {
@@ -393,36 +421,6 @@ class DeepGuardDashboard {
             'artifacts': 'Artifact Detection'
         };
         return names[name] || name.charAt(0).toUpperCase() + name.slice(1);
-    }
-
-    displayMockResults(filename, fileType) {
-        const isFake = Math.random() > 0.5;
-        const confidence = (70 + Math.random() * 25).toFixed(1);
-
-        const mockResult = {
-            label: isFake ? 'FAKE' : 'REAL',
-            confidence: parseFloat(confidence),
-            ensemble_score: isFake ? 0.7 + Math.random() * 0.25 : Math.random() * 0.3,
-            accuracy_rating: '95.8%',
-            detection_method: 'ensemble_ml_mock',
-            model_predictions: {
-                'cnn': Math.random(),
-                'lstm': Math.random(),
-                'neural': Math.random(),
-                'statistical': Math.random()
-            }
-        };
-
-        this.displayResults(mockResult, filename, fileType);
-        this.addToHistory(filename, fileType, mockResult);
-    }
-
-    getFileType(filename) {
-        const ext = filename.split('.').pop().toLowerCase();
-        if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) return 'image';
-        if (['mp4', 'avi', 'mov', 'mkv'].includes(ext)) return 'video';
-        if (['mp3', 'wav', 'ogg', 'flac'].includes(ext)) return 'audio';
-        return 'text';
     }
 
     addToHistory(filename, fileType, result) {

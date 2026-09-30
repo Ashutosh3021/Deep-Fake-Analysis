@@ -116,7 +116,11 @@ class FinalAudioDetector:
     def _try_load_pretrained_model(self):
         try:
             from transformers import pipeline
-            self._hf_pipeline = pipeline("audio-classification", model=PRETRAINED_MODEL_ID)
+            # Pin the PyTorch backend (see final_image_detector._load_model):
+            # the TF path breaks under Keras 3 and would disable this model.
+            self._hf_pipeline = pipeline(
+                "audio-classification", model=PRETRAINED_MODEL_ID, framework="pt", device=-1
+            )
             logger.info("Loaded pretrained audio spoof-detection model: %s", PRETRAINED_MODEL_ID)
         except Exception as e:
             self._hf_load_error = str(e)

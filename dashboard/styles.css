@@ -1502,3 +1502,17 @@ body {
 .fusion-mod-card .mod-score.authentic span {
     color: var(--success);
 }
+
+.api-error {
+    display: block;
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-left: 4px solid var(--danger, #ef4444);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    margin: 1rem 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #991b1b;
+    white-space: pre-line;
+}
