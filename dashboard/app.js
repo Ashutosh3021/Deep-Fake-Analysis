@@ -11,11 +11,17 @@ function escapeHTML(str) {
     );
 }
 
+// API base URL: use same origin when served over http(s) (e.g. Render),
+// fall back to localhost when opened locally without the Flask server serving the page.
+const API_BASE_URL = (location.protocol === 'http:' || location.protocol === 'https:')
+    ? window.location.origin
+    : 'http://localhost:5000';
+
 // DeepGuard AI Dashboard JavaScript
 class DeepGuardDashboard {
     constructor() {
         this.history = JSON.parse(localStorage.getItem('deepguard_history')) || [];
-        this.apiBaseUrl = 'http://localhost:5000';
+        this.apiBaseUrl = API_BASE_URL;
         this.init();
     }
 
@@ -541,7 +547,7 @@ class DeepGuardDashboard {
    ════════════════════════════════════════════════════════════ */
 class QueryAssistant {
     constructor() {
-        this.apiBaseUrl = 'http://localhost:5000';
+        this.apiBaseUrl = API_BASE_URL;
         this.currentMode = 'image'; // 'image' | 'text'
         this.selectedFile = null;
         this.init();
@@ -963,5 +969,5 @@ class FusionAnalyzer {
 document.addEventListener('DOMContentLoaded', () => {
     window.dashboard = new DeepGuardDashboard();
     window.queryAssistant = new QueryAssistant();
-    window.fusionAnalyzer = new FusionAnalyzer('http://localhost:5000');
+    window.fusionAnalyzer = new FusionAnalyzer(API_BASE_URL);
 });
