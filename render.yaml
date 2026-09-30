@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: deep-fake-analysis
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:$PORT api:app
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
