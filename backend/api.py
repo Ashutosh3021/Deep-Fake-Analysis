@@ -40,6 +40,26 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 models = {}
 
 
+# Warm up models in the background at startup so the first user request
+# doesn't block for minutes (torch/transformers import + HF downloads).
+# Thread is started at the end of this module, after loaders are defined.
+import threading
+
+def _warmup_models():
+    for name, loader in [
+        ('image', get_image_detector),
+        ('text', get_text_detector),
+        ('audio', get_audio_detector),
+        ('video', get_video_detector),
+        ('query_assistant', get_query_assistant),
+    ]:
+        try:
+            loader()
+            print(f"[warmup] {name} loaded")
+        except Exception as e:
+            print(f"[warmup] {name} failed: {e}")
+
+
 # ======================================================================
 # Calibrated Multi-Modal Fusion & Policy Engine (from plan.md)
 # V2: FuseMoE, GAMED Veto, CAST Cross-Attention
@@ -660,11 +680,11 @@ def get_status():
         'status': 'running',
         'version': '3.0',
         'models': {
-            'image': get_image_detector() is not None,
-            'audio': get_audio_detector() is not None,
-            'video': get_video_detector() is not None,
-            'text': get_text_detector() is not None,
-            'query_assistant': get_query_assistant() is not None,
+            'image': 'image' in models,
+            'audio': 'audio' in models,
+            'video': 'video' in models,
+            'text': 'text' in models,
+            'query_assistant': 'query_assistant' in models,
             'fusion_engine': True,
         },
         'features': [
@@ -748,6 +768,10 @@ def mock_text_detection(text):
         "suspicious_spans": [],
         "notes": "Mock detection -- model not loaded."
     }
+
+
+# Start background model warm-up (after all loaders are defined above).
+threading.Thread(target=_warmup_models, daemon=True).start()
 
 
 if __name__ == '__main__':
