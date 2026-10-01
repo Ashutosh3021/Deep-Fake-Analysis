@@ -27,6 +27,7 @@ os.environ.setdefault("USE_TF", "0")
 
 # Import new models from models/ directory
 import sys
+import importlib
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models'))
 
 app = Flask(__name__)
@@ -69,8 +70,12 @@ def _warmup_models():
         ('query_assistant', get_query_assistant),
     ]:
         try:
-            loader()
-            print(f"[warmup] {name} loaded")
+            if loader() is None:
+                # Loaders swallow their own errors and return None, so this is
+                # a failure, not a success (it used to print "[warmup] loaded").
+                print(f"[warmup] {name} failed (see error above)")
+            else:
+                print(f"[warmup] {name} loaded")
         except Exception as e:
             print(f"[warmup] {name} failed: {e}")
 
@@ -290,57 +295,159 @@ class EvidenceFusionEngine:
 
 
 # ======================================================================
-# Model loading (unchanged)
+# Model loading (lazy, lock-serialized, fork-safe)
 # ======================================================================
+# The model modules are slow to import (torch/transformers/HF downloads), so
+# they load lazily behind these accessors and cache in `models`. Three hazards
+# are handled here:
+#
+#   1. The warm-up thread and request threads can ask for the same model at
+#      the same time, so one lock serializes the import.
+#   2. Under `gunicorn --preload` the worker forks while the master's warm-up
+#      thread may still be inside an import. That thread does not survive the
+#      fork, so the child inherits sys.modules entries whose spec is still
+#      `_initializing` -- modules no thread will ever finish. Every later
+#      import of them fails with "cannot import name X from partially
+#      initialized module X" (and numpy degrades to "partially initialized
+#      module 'numpy' has no attribute 'ndarray'"). recover_from_fork() drops
+#      them, once, at the only moment that is provably safe: right after the
+#      fork, before this process has imported anything of its own.
+#   3. Dropping *any* half-imported module is only safe when nothing else is
+#      importing it right now, so the per-import retry below is restricted to
+#      modules this package owns (and only those are ever imported under
+#      _model_lock). Never widen it to arbitrary sys.modules entries.
+_model_lock = threading.RLock()
+
+_OUR_MODULES = frozenset({
+    'final_image_detector', 'final_audio_detector', 'final_video_detector',
+    'final_text_detector', 'forensics_core', 'nn_modules',
+    'query_assistant', 'runtime_limits',
+})
+
+_fork_recovered = False
+
+
+def _partial_module_names():
+    """Modules whose import never finished (spec still marked `_initializing`)."""
+    stale = []
+    for name, mod in list(sys.modules.items()):
+        if mod is None:
+            continue
+        spec = getattr(mod, "__spec__", None)
+        if spec is not None and getattr(spec, "_initializing", False):
+            stale.append(name)
+    return stale
+
+
+def recover_from_fork():
+    """Drop modules a fork left half-imported. Runs at most once per process.
+
+    Called from ensure_warmup() in the gunicorn worker, which runs from the
+    post_fork hook before any model import here. Do not call it later: a
+    module another thread is executing right now is also "half-imported", and
+    deleting it from sys.modules breaks that import (KeyError in _find_and_load).
+    """
+    global _fork_recovered
+    if _fork_recovered:
+        return
+    _fork_recovered = True
+    stale = _partial_module_names()
+    for name in stale:
+        sys.modules.pop(name, None)
+    if stale:
+        shown = ", ".join(sorted(stale)[:8])
+        if len(stale) > 8:
+            shown += f", +{len(stale) - 8} more"
+        print(f"[import] fork left {len(stale)} half-imported module(s) "
+              f"({shown}); dropped for re-import")
+
+
+def _import_model(module_name: str, attr_name: str):
+    """Return `module.attr`, retrying once after dropping interrupted modules.
+
+    Only `_OUR_MODULES` (plus the module we are importing) are eligible for
+    the purge -- those are imported exclusively under `_model_lock`, so the
+    retry cannot stomp on another thread's in-flight import.
+    """
+    last_error: Optional[Exception] = None
+    for _attempt in range(2):
+        try:
+            return getattr(importlib.import_module(module_name), attr_name)
+        except Exception as exc:
+            last_error = exc
+            stale = [name for name in _partial_module_names()
+                     if name in _OUR_MODULES or name == module_name]
+            if not stale:
+                raise
+            for name in stale:
+                sys.modules.pop(name, None)
+            shown = ", ".join(sorted(stale)[:8])
+            if len(stale) > 8:
+                shown += f", +{len(stale) - 8} more"
+            print(f"[import] {module_name}: dropped interrupted import(s) "
+                  f"({shown}); retrying")
+    raise last_error
+
+
 def get_image_detector():
     if 'image' not in models:
-        try:
-            from final_image_detector import final_image_detector
-            models['image'] = final_image_detector
-        except Exception as e:
-            print(f"Error loading image detector: {e}")
-            return None
+        with _model_lock:
+            if 'image' not in models:
+                try:
+                    models['image'] = _import_model(
+                        'final_image_detector', 'final_image_detector')
+                except Exception as e:
+                    print(f"Error loading image detector: {e}")
+                    return None
     return models['image']
 
 def get_audio_detector():
     if 'audio' not in models:
-        try:
-            from final_audio_detector import final_audio_detector
-            models['audio'] = final_audio_detector
-        except Exception as e:
-            print(f"Error loading audio detector: {e}")
-            return None
+        with _model_lock:
+            if 'audio' not in models:
+                try:
+                    models['audio'] = _import_model(
+                        'final_audio_detector', 'final_audio_detector')
+                except Exception as e:
+                    print(f"Error loading audio detector: {e}")
+                    return None
     return models['audio']
 
 def get_video_detector():
     if 'video' not in models:
-        try:
-            from final_video_detector import final_video_detector
-            models['video'] = final_video_detector
-        except Exception as e:
-            print(f"Error loading video detector: {e}")
-            return None
+        with _model_lock:
+            if 'video' not in models:
+                try:
+                    models['video'] = _import_model(
+                        'final_video_detector', 'final_video_detector')
+                except Exception as e:
+                    print(f"Error loading video detector: {e}")
+                    return None
     return models['video']
 
 def get_text_detector():
     if 'text' not in models:
-        try:
-            from final_text_detector import final_text_detector
-            models['text'] = final_text_detector
-        except Exception as e:
-            print(f"Error loading text detector: {e}")
-            return None
+        with _model_lock:
+            if 'text' not in models:
+                try:
+                    models['text'] = _import_model(
+                        'final_text_detector', 'final_text_detector')
+                except Exception as e:
+                    print(f"Error loading text detector: {e}")
+                    return None
     return models['text']
 
 def get_query_assistant():
     if 'query_assistant' not in models:
-        try:
-            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models'))
-            import query_assistant
-            models['query_assistant'] = query_assistant
-        except Exception as e:
-            print(f"Error loading query assistant: {e}")
-            return None
+        with _model_lock:
+            if 'query_assistant' not in models:
+                try:
+                    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models'))
+                    import query_assistant
+                    models['query_assistant'] = query_assistant
+                except Exception as e:
+                    print(f"Error loading query assistant: {e}")
+                    return None
     return models['query_assistant']
 
 def allowed_file(filename):
@@ -809,22 +916,32 @@ def mock_text_detection(text):
 
 # Start background model warm-up (after all loaders are defined above).
 #
-# Under gunicorn --preload this thread is started in the master and dies when
-# the worker forks, leaving every worker cold: the first request then pays the
-# full model-load cost inline and hits the proxy's 502. ensure_warmup() is
-# pid-aware, so gunicorn.conf.py's post_fork hook starts it again in the worker.
+# Under gunicorn this must NOT run at import time: with --preload the import
+# happens in the *master*, and the thread it starts imports model modules
+# while gunicorn forks the worker. The thread dies with the fork, leaving the
+# child with half-imported entries in sys.modules that can never finish --
+# image detection then fails for the worker's whole life with
+# "partially initialized module 'final_image_detector'". gunicorn.conf.py's
+# post_fork hook calls ensure_warmup() in the worker instead, where the import
+# runs cleanly. Standalone `python api.py` keeps the eager warm-up.
 _warmup_state: Dict[str, Any] = {"pid": None}
 
 
 def ensure_warmup():
     """Load models in this process, once. Safe to call from any hook."""
+    if 'gunicorn' in sys.modules:
+        # post_fork is the first thing that runs in the worker, so this is the
+        # one moment where every half-imported module left behind by the fork
+        # is provably orphaned. Must happen before the warm-up thread starts.
+        recover_from_fork()
     if _warmup_state.get("pid") == os.getpid():
         return
     _warmup_state["pid"] = os.getpid()
     threading.Thread(target=_warmup_models, daemon=True).start()
 
 
-ensure_warmup()
+if 'gunicorn' not in sys.modules:
+    ensure_warmup()
 
 
 if __name__ == '__main__':
