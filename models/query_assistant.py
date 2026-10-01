@@ -20,34 +20,61 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # ─────────────────────────────────────────────────────────────
 import threading
 
+from runtime_limits import allow as _allow_heavy_dep
+
 _yolo_lock = threading.Lock()
 _yolo_model = None
+_yolo_unavailable_reason = None
+
 
 def _get_yolo():
-    global _yolo_model
-    if _yolo_model is None:
-        with _yolo_lock:
-            if _yolo_model is None:
-                import torch
-                import functools
-                from ultralytics import YOLO
+    """
+    Load YOLOv8 on first use -- and only when the instance can afford it.
 
-                # PyTorch 2.6+ defaults torch.load to weights_only=True, which blocks
-                # ultralytics custom classes. We patch torch.load to force weights_only=False
-                # only while the official yolov8n.pt weights are being loaded.
-                # This is safe: the file is from Ultralytics and we downloaded it ourselves.
-                _original_load = torch.load
+    ultralytics adds roughly 180MB of torch/CUDA-adjacent state; on a
+    memory-constrained container that is the difference between serving and an
+    OOM restart, so the load is gated (see runtime_limits).
+    """
+    global _yolo_model, _yolo_unavailable_reason
+    if _yolo_model is not None:
+        return _yolo_model
+    if _yolo_unavailable_reason is not None:
+        return None
+    with _yolo_lock:
+        if _yolo_model is not None:
+            return _yolo_model
+        if _yolo_unavailable_reason is not None:
+            return None
 
-                @functools.wraps(_original_load)
-                def _patched_load(*args, **kwargs):
-                    kwargs["weights_only"] = False
-                    return _original_load(*args, **kwargs)
+        allowed, reason = _allow_heavy_dep("YOLO object detection", min_limit_gib=1.0)
+        if not allowed:
+            _yolo_unavailable_reason = reason
+            return None
 
-                torch.load = _patched_load
-                try:
-                    _yolo_model = YOLO("yolov8n.pt")
-                finally:
-                    torch.load = _original_load   # always restore original
+        try:
+            import torch
+            import functools
+            from ultralytics import YOLO
+
+            # PyTorch 2.6+ defaults torch.load to weights_only=True, which blocks
+            # ultralytics custom classes. We patch torch.load to force weights_only=False
+            # only while the official yolov8n.pt weights are being loaded.
+            # This is safe: the file is from Ultralytics and we downloaded it ourselves.
+            _original_load = torch.load
+
+            @functools.wraps(_original_load)
+            def _patched_load(*args, **kwargs):
+                kwargs["weights_only"] = False
+                return _original_load(*args, **kwargs)
+
+            torch.load = _patched_load
+            try:
+                _yolo_model = YOLO("yolov8n.pt")
+            finally:
+                torch.load = _original_load   # always restore original
+        except Exception as e:
+            _yolo_unavailable_reason = f"YOLO unavailable: {e}"
+            return None
 
     return _yolo_model
 
@@ -106,21 +133,27 @@ def analyze_image(filepath: str, user_query: str = "") -> dict:
     """
     # -- YOLO detection --
     yolo = _get_yolo()
-    results = yolo(filepath, verbose=False)
+    if yolo is None:
+        detected = []
+        seen_labels = {}
+        object_summary = ("object detection skipped: "
+                          + (_yolo_unavailable_reason or "YOLO not loaded"))
+    else:
+        results = yolo(filepath, verbose=False)
 
-    detected = []
-    seen_labels = {}
-    for r in results:
-        for box in r.boxes:
-            label = r.names[int(box.cls[0])]
-            conf  = round(float(box.conf[0]) * 100, 1)
-            coords = [round(v, 1) for v in box.xyxy[0].tolist()]
-            detected.append({"name": label, "confidence": conf, "box": coords})
-            seen_labels[label] = max(seen_labels.get(label, 0), conf)
+        detected = []
+        seen_labels = {}
+        for r in results:
+            for box in r.boxes:
+                label = r.names[int(box.cls[0])]
+                conf  = round(float(box.conf[0]) * 100, 1)
+                coords = [round(v, 1) for v in box.xyxy[0].tolist()]
+                detected.append({"name": label, "confidence": conf, "box": coords})
+                seen_labels[label] = max(seen_labels.get(label, 0), conf)
 
-    object_summary = ", ".join(
-        f"{k} ({v}%)" for k, v in sorted(seen_labels.items(), key=lambda x: -x[1])
-    ) if seen_labels else "no objects detected"
+        object_summary = ", ".join(
+            f"{k} ({v}%)" for k, v in sorted(seen_labels.items(), key=lambda x: -x[1])
+        ) if seen_labels else "no objects detected"
 
     # -- Gemini description --
     gemini = _get_gemini()

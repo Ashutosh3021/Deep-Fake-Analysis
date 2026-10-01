@@ -47,12 +47,26 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
-try:
-    import mediapipe as mp
-    MEDIAPIPE_AVAILABLE = True
-except ImportError:
-    MEDIAPIPE_AVAILABLE = False
-    logger.warning("mediapipe not installed -- temporal/landmark analysis will be skipped.")
+# mediapipe / FaceMesh -- LAZY, with a memory gate.
+#
+# `import mediapipe` eagerly imports full TensorFlow, which costs ~380MB of RSS.
+# Importing it at module scope pushed every gunicorn worker past Render's
+# instance memory limit and put the service into an OOM restart loop, so it is
+# deferred until a video actually needs landmarks (see _ensure_face_mesh).
+from runtime_limits import allow as _allow_heavy_dep
+
+_landmarks_state = {"reason": None}
+
+
+def _landmarks_allowed() -> Tuple[bool, str]:
+    """
+    (allowed, reason) for the TensorFlow-backed landmark path.
+
+    DEEPGUARD_HEAVY_DEPS=on|off forces the choice; `auto` (default) skips the
+    path when the instance is memory-constrained (e.g. Render's 512MB-1GB
+    plans), where loading TensorFlow reliably gets the worker OOM-killed.
+    """
+    return _allow_heavy_dep("face landmarks", min_limit_gib=1.5)
 
 try:
     import librosa
@@ -111,12 +125,7 @@ class VideoVerdict:
 class FinalVideoDetector:
     def __init__(self):
         self._face_mesh = None
-        if MEDIAPIPE_AVAILABLE:
-            mp_face_mesh = mp.solutions.face_mesh
-            self._face_mesh = mp_face_mesh.FaceMesh(
-                static_image_mode=False, max_num_faces=5,
-                refine_landmarks=True, min_detection_confidence=0.5
-            )
+        self._face_mesh_init = False
 
         self._image_detector = None
         try:
@@ -124,6 +133,37 @@ class FinalVideoDetector:
             self._image_detector = FinalImageDetector()
         except Exception as e:
             logger.warning("Could not load FinalImageDetector for per-frame scoring: %s", e)
+
+    def _ensure_face_mesh(self):
+        """
+        Build the mediapipe FaceMesh on first use.
+
+        Returns the mesh, or None when landmarks are unavailable (not installed,
+        disabled, or the instance is too memory-constrained). Callers already
+        treat a None mesh as "skip this signal", so this degrades gracefully.
+        """
+        if self._face_mesh_init:
+            return self._face_mesh
+        self._face_mesh_init = True
+
+        allowed, reason = _landmarks_allowed()
+        if not allowed:
+            _landmarks_state["reason"] = reason
+            logger.info("Face landmarks skipped: %s", reason)
+            return None
+
+        try:
+            import mediapipe as mp
+            self._face_mesh = mp.solutions.face_mesh.FaceMesh(
+                static_image_mode=False, max_num_faces=5,
+                refine_landmarks=True, min_detection_confidence=0.5
+            )
+            _landmarks_state["reason"] = None
+        except Exception as e:
+            _landmarks_state["reason"] = f"mediapipe unavailable: {e}"
+            logger.warning("mediapipe unavailable -- temporal/landmark analysis will be "
+                           "skipped (%s)", e)
+        return self._face_mesh
 
     # ------------------------------------------------------------------
     def _extract_frames(self, video_path: str, max_frames: int = MAX_FRAMES_SAMPLED) -> List[np.ndarray]:
@@ -189,7 +229,7 @@ class FinalVideoDetector:
         return (vertical1 + vertical2) / (2.0 * horizontal)
 
     def _landmark_sequence(self, frames: List[np.ndarray]) -> List[Optional[np.ndarray]]:
-        if self._face_mesh is None:
+        if self._ensure_face_mesh() is None:
             return []
         sequence = []
         for frame in frames:
@@ -217,8 +257,10 @@ class FinalVideoDetector:
         4. Blink rate analysis
         Returns suspicious frame indices for temporal localization.
         """
-        if self._face_mesh is None:
-            return {"available": False, "reason": "mediapipe not installed", "score": 0.0, "suspicious_frames": []}
+        if self._ensure_face_mesh() is None:
+            return {"available": False,
+                    "reason": _landmarks_state.get("reason") or "mediapipe not installed",
+                    "score": 0.0, "suspicious_frames": []}
 
         sequence = self._landmark_sequence(frames)
         valid = [(i, p) for i, p in enumerate(sequence) if p is not None]
@@ -516,8 +558,10 @@ class FinalVideoDetector:
             audio_energy = np.array(audio_energy)
 
             # Compute mouth aspect ratio sequence from video frames
-            if self._face_mesh is None:
-                return {"available": False, "reason": "face mesh unavailable", "score": 0.0}
+            if self._ensure_face_mesh() is None:
+                return {"available": False,
+                        "reason": _landmarks_state.get("reason") or "face mesh unavailable",
+                        "score": 0.0}
 
             cap = cv2.VideoCapture(video_path)
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))

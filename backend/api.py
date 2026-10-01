@@ -18,6 +18,13 @@ warnings.filterwarnings('ignore')
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
+# transformers' image_transforms does `if is_tf_available(): import tensorflow`,
+# which yanks ~380MB of TensorFlow into every worker even though every pipeline
+# here runs framework="pt". retina-face depends on tensorflow, so it *is*
+# installed, and that alone was enough to push the gunicorn worker over Render's
+# instance memory limit (OOM restart loop). Must be set before transformers loads.
+os.environ.setdefault("USE_TF", "0")
+
 # Import new models from models/ directory
 import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models'))
