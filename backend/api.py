@@ -808,7 +808,23 @@ def mock_text_detection(text):
 
 
 # Start background model warm-up (after all loaders are defined above).
-threading.Thread(target=_warmup_models, daemon=True).start()
+#
+# Under gunicorn --preload this thread is started in the master and dies when
+# the worker forks, leaving every worker cold: the first request then pays the
+# full model-load cost inline and hits the proxy's 502. ensure_warmup() is
+# pid-aware, so gunicorn.conf.py's post_fork hook starts it again in the worker.
+_warmup_state: Dict[str, Any] = {"pid": None}
+
+
+def ensure_warmup():
+    """Load models in this process, once. Safe to call from any hook."""
+    if _warmup_state.get("pid") == os.getpid():
+        return
+    _warmup_state["pid"] = os.getpid()
+    threading.Thread(target=_warmup_models, daemon=True).start()
+
+
+ensure_warmup()
 
 
 if __name__ == '__main__':

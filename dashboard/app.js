@@ -106,6 +106,13 @@ class DeepGuardDashboard {
                 body: formData
             });
 
+            // Gateway/proxy failures have no JSON body -- catch them before
+            // parseJson so the user gets a real explanation instead of
+            // "Empty response (HTTP 502)".
+            if (response.status >= 500) {
+                throw this.httpError(response);
+            }
+
             const data = await this.parseJson(response);
 
             if (!response.ok || !data.success) {
@@ -134,6 +141,19 @@ class DeepGuardDashboard {
             const head = text.replace(/\s+/g, ' ').slice(0, 160);
             throw new Error(head ? `Non-JSON response: ${head}` : `Empty response (HTTP ${response.status})`);
         }
+    }
+
+    // Human-readable error for gateway/proxy failures (502/503/504), which
+    // arrive with an empty body because the backend crashed or timed out.
+    httpError(response) {
+        const s = response.status;
+        if (s === 502 || s === 503 || s === 504) {
+            return new Error(
+                `HTTP ${s}: the analysis server is restarting or overloaded, so the ` +
+                'file was NOT analyzed. Please try again in a minute.'
+            );
+        }
+        return new Error(`HTTP ${s}${response.statusText ? ' ' + response.statusText : ''} from the analysis server`);
     }
 
     showError(message) {
@@ -174,6 +194,10 @@ class DeepGuardDashboard {
                 },
                 body: JSON.stringify({ text: text })
             });
+
+            if (response.status >= 500) {
+                throw this.httpError(response);
+            }
 
             const data = await this.parseJson(response);
 

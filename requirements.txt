@@ -1,5 +1,13 @@
 # DeepGuard AI - Python Dependencies
 # Enhanced Deepfake Detection System
+#
+# CPU-only PyTorch wheels: the default PyPI torch pulls the CUDA build plus
+# ~2.5GB of nvidia-* libs. On Render's CPU-only instance that is pure weight --
+# it pushed the worker's RSS over the instance limit (OOM restart loop) and
+# made every deploy upload gigabytes. The extra index also provides the
+# matching `+cpu` wheels; if one is unavailable pip falls back to PyPI.
+--extra-index-url https://download.pytorch.org/whl/cpu
+#
 # Trimmed to packages actually imported by the ACTIVE pipeline:
 #   backend/api.py, models/final_*.py, models/forensics_core.py,
 #   models/query_assistant.py, models/temporal_analyzer.py
@@ -17,6 +25,9 @@ scikit-learn==1.3.0
 numpy==1.24.3
 scipy==1.11.2
 torch==2.5.1
+# torchvision is not imported directly, but ultralytics depends on it; pin it
+# so the resolver cannot drag in a newer pair (0.20.1 matches torch 2.5.1).
+torchvision==0.20.1
 transformers==4.44.0
 retina-face==0.0.13
 
