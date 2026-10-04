@@ -50,8 +50,10 @@ Deep-Fake-Analysis/
 │   ├── index.html                 # Frontend dashboard
 │   ├── styles.css                 # Styling
 │   └── app.js                     # Frontend logic
-├── plan.md                        # Implementation roadmap/spec
-├── README.md / MODEL_CARD.md      # Docs
+├── Docs/                          # Planning docs (plan.md, ALUDAM_PLAN.md, ...)
+├── aludam/                        # Tier-1 package (PyPI: aludam)
+├── aludam-fullplate/              # Tier-2 package (PyPI: aludam-fullplate)
+├── README.md                      # Project overview
 ├── requirements.txt               # Python dependencies
 └── yolov8n.pt                     # YOLOv8 weights (query assistant)
 ```

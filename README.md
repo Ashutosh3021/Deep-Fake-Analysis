@@ -36,6 +36,15 @@ DeepGuard AI implements a **Layered Defense-in-Depth Architecture**:
 
 ```
 Deep-Fake-Analysis/
+├── Docs/                          # Planning & design documents
+│   ├── ALUDAM_PLAN.md             # aludam spec: findings, decisions, phases
+│   ├── plan.md                    # Original implementation roadmap
+│   ├── new_plan.md                # Model improvement plan
+│   ├── working_principles.md      # Ground-truth behaviour of every module
+│   ├── API_DOCUMENTATION.md       # REST API reference
+│   └── MODEL_CARD.md              # Model card
+├── aludam/                        # Tier-1 package (PyPI: aludam)
+├── aludam-fullplate/              # Tier-2 package (PyPI: aludam-fullplate)
 ├── models/
 │   ├── forensics_core.py          # Shared forensic primitives
 │   ├── final_image_detector.py    # Image manipulation detector
@@ -52,10 +61,8 @@ Deep-Fake-Analysis/
 │   ├── index.html                 # Dashboard HTML
 │   ├── styles.css                 # Dashboard styles
 │   └── app.js                     # Dashboard JavaScript
-├── plan.md                        # Implementation roadmap
-├── session.log                    # Implementation session log
+├── tests/                         # Backend/detector test suite
 ├── requirements.txt               # Python dependencies
-├── start.bat / start.sh           # Startup scripts
 └── yolov8n.pt                     # YOLOv8 weights (query assistant)
 ```
 
