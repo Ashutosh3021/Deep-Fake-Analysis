@@ -1,0 +1,5 @@
+include LICENSE
+include THIRD_PARTY_NOTICES
+include README.md
+recursive-include src/aludam py.typed
+recursive-include src/aludam/data *.json

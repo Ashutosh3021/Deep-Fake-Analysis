@@ -1,0 +1,94 @@
+# Third-party notices
+
+`aludam`'s own code is MIT licensed (see `LICENSE`). It does **not**
+redistribute model weights - weights are fetched at runtime and cached
+locally. Their licenses still apply to the *use* of the weights.
+
+Every row below was checked against the source named in its Status column
+(installed package metadata, PyPI metadata, or the Hugging Face model /
+dataset card API) on 2026-10-04. No row is left unresolved. Re-check this
+file before any release that changes a dependency pin or swaps a model.
+
+This is not legal advice.
+
+## Python dependencies (declared by `pyproject.toml`)
+
+| Component | License | Status |
+|---|---|---|
+| Pillow | MIT-CMU | VERIFIED (2026-10-04: PyPI License-Expression; installed 10.0.0 metadata reports HPND) |
+| numpy | BSD-3-Clause | VERIFIED (2026-10-04: installed metadata) |
+| pypdf | BSD-3-Clause | VERIFIED (2026-10-04: installed metadata) |
+| python-docx | MIT | VERIFIED (2026-10-04: installed metadata) |
+| torch | BSD-3-Clause | VERIFIED (2026-10-04: installed metadata; extra `[neural]`) |
+| transformers | Apache-2.0 | VERIFIED (2026-10-04: installed metadata; extra `[neural]`) |
+| huggingface_hub | Apache-2.0 | VERIFIED (2026-10-04: installed metadata; extra `[neural]`; row added - it was declared but unlisted) |
+| timm | Apache-2.0 | VERIFIED (2026-10-04: PyPI metadata; extra `[neural]`) |
+| peft | Apache-2.0 | VERIFIED (2026-10-04: PyPI metadata; extra `[neural]`) |
+| opencv-python-headless | Apache-2.0 | VERIFIED (2026-10-04: PyPI metadata; extra `[neural]`) |
+| librosa | ISC | VERIFIED (2026-10-04: installed metadata; extra `[neural]`) |
+| soundfile | BSD-3-Clause | VERIFIED (2026-10-04: installed + PyPI metadata; row previously said ISC) |
+| scipy | BSD-3-Clause | VERIFIED (2026-10-04: installed metadata; extra `[neural]`) |
+| onnxruntime | MIT | VERIFIED (2026-10-04: PyPI metadata; extra `[neural]`) |
+
+Every package above is declared in `aludam/pyproject.toml`.
+`aludam-fullplate` declares no dependency of its own beyond
+`aludam[neural]`, so these fourteen rows are the complete dependency
+inventory for both distributions.
+
+## Model weights (fetched, never bundled)
+
+| Weight | Used by | License | Status |
+|---|---|---|---|
+| `gpt2` (HF id `openai-community/gpt2`) | `text_det` perplexity probe | MIT | VERIFIED (2026-10-04: HF card `license: mit`) |
+| `umm-maybe/AI-image-detector` | `img_det` primary model | CC-BY-4.0 in the card frontmatter; the card body says CC-BY-ND-4.0 - contradiction recorded (ALUDAM_PLAN.md finding 24) | VERIFIED with caveat (2026-10-04: HF card frontmatter) |
+| `MelodyMachine/Deepfake-audio-detection-V2` | `aud_det` | Apache-2.0 | VERIFIED (2026-10-04: HF card `license: apache-2.0`); gate 1 below cleared |
+| `AICodexLab/answerdotai-ModernBERT-base-ai-detector` | `text_det` (Phase 3 swap) | Apache-2.0 | VERIFIED (2026-10-04: HF card) |
+| `Bombek1/ai-image-detector-siglip-dinov2` | `img_det` (Phase 3 swap) | MIT | VERIFIED (2026-10-04: HF card) |
+| `gaetanbrison/deepfake-detector-resnet50-t2v-sora-veo2` | `vdo_det` (Phase 3 swap) | BSD-3-Clause | VERIFIED (2026-10-04: HF card; repo id corrected - `gaetanbrison/resnet50-deepfake-t2v` does not exist). Card also says research / defensive use only - gate 2 below |
+| `lofcz/ai-music-detector` (file `ai_music_detector.onnx`) | `aud_det` (Phase 3 swap) | MIT | VERIFIED (2026-10-04: HF card; row previously named the file, not the repo) |
+| `opencv/opencv_zoo` `models/face_detection_yunet` ONNX | YuNet face backend (Phase 1) | MIT | VERIFIED (2026-10-04: `LICENSE` inside `models/face_detection_yunet/` in the opencv_zoo repo; this checkout has no local copy of it) |
+
+Weights are downloaded by `aludam fetch` from Hugging Face at runtime; the
+wheel contains code and declarations only. Using a weight is use of that
+weight under its own license, even though nothing is redistributed here.
+
+## Evaluation data (not distributed)
+
+Referenced by `aludam/eval/` per ALUDAM_PLAN.md D5. No sample, subset or
+shard of any of these is committed or shipped: only dataset ids, revision
+SHAs and metrics, and the cache is gitignored. Licenses attach to the data,
+not to this package's code (D5; not legal advice).
+
+| Dataset | Role | License | Status |
+|---|---|---|---|
+| `yaful/MAGE` (test + valid splits) | text evaluation + calibration | Apache-2.0 | VERIFIED (2026-10-04: HF card) |
+| `Hello-SimpleAI/HC3` | non-RAID held-out text check | CC-BY-SA-4.0 | VERIFIED (2026-10-04: HF card) |
+| `OwensLab/CommunityForensics-Eval` | image primary (D5) | CC-BY-NC-SA-4.0 | VERIFIED (2026-10-04: HF card) |
+| `SpeechAntiSpoofingBenchmarks/ASVspoof2021_DF` | audio primary (D5) | ODbL-1.0 per D5; HF card tags it "other" | VERIFIED (2026-10-04: HF card + D5 record) |
+| `nuriachandra/Deepfake-Eval-2024` | video primary, strictly test-only (D5.1) | CC-BY-SA-4.0 | VERIFIED (2026-10-04: HF card; evaluation-only terms recorded in D5.1) |
+
+## Publish gates (ALUDAM_PLAN.md sec 8 Phase 4) - status 2026-10-04
+
+1. `MelodyMachine/Deepfake-audio-detection-V2` license read and accepted:
+   **Apache-2.0** per its HF card. Cleared.
+2. The video model's research / defensive use note is **confirmed** on the
+   gaetanbrison card. `vdo_det` has no fetchable weights today (it is pure
+   forensics), so `aludam fetch` has nothing to surface yet; when the Phase 3
+   resnet50 swap lands, the fetch step must show the note.
+3. The `gaetanbrison` license was established independently of its dead
+   GitHub repository: **BSD-3-Clause** per the HF card of
+   `gaetanbrison/deepfake-detector-resnet50-t2v-sora-veo2`.
+4. Every row above resolves to a concrete SPDX-style identifier from a named
+   source. None is unresolved.
+
+## `aludam-fullplate`
+
+The `aludam-fullplate` distribution ships a re-export module and one
+dependency, `aludam[neural]`, and carries its own pointer file at
+`aludam-fullplate/THIRD_PARTY_NOTICES`. The tables above cover it too: it
+declares no dependency beyond this package.
+
+## Upstream repository this package wraps
+
+The detector implementations under `models/` originate in this project's own
+repository and are covered by its license / `LICENSE` file.

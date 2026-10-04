@@ -1,0 +1,4 @@
+include LICENSE
+include THIRD_PARTY_NOTICES
+include README.md
+recursive-include src/aludam_fullplate py.typed

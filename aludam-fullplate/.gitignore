@@ -1,0 +1,7 @@
+# Build / packaging artifacts (keep the package tree clean for commits)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/

@@ -1,0 +1,57 @@
+{
+  "hc3": {
+    "_prev_sha": {
+      "all.jsonl": "ee231f82283d754050a4dc58ecf9331afaf5daea7283c6da0b096ed0fb2774cf"
+    },
+    "files": {
+      "all.jsonl": {
+        "path": "C:\\Users\\ashut\\.cache\\huggingface\\hub\\datasets--Hello-SimpleAI--HC3\\snapshots\\4d0ff18143b5a7e1b1e79beb540c04549d1e59d3\\all.jsonl",
+        "purpose": "all five domains, human vs ChatGPT answers",
+        "sha256": "ee231f82283d754050a4dc58ecf9331afaf5daea7283c6da0b096ed0fb2774cf",
+        "size_bytes": 73722850
+      }
+    },
+    "label_convention": "human_answers vs chatgpt_answers (verify at ingest)",
+    "license": "cc-by-sa-4.0",
+    "repo": "Hello-SimpleAI/HC3",
+    "revision": "4d0ff18143b5a7e1b1e79beb540c04549d1e59d3"
+  },
+  "mage": {
+    "_prev_sha": {
+      "test.csv": "dcb8a8a8de1459d382ac2da5e0f1c39452e8bc47d186d7393f3ed4308f762ac7",
+      "test_ood_set_gpt.csv": "b9fe1faaa45fbbad446f527da12d42e3e9e3bbd207f7ea054e81ec8e922016d2",
+      "test_ood_set_gpt_para.csv": "a587909d155447ea2768cbd8f695a7febb65cdd7414da5c3b5ff6d6397463725",
+      "valid.csv": "005e200957a4da551c8ac37079f43811db9c32f5141e3bdabb1caa257588691f"
+    },
+    "files": {
+      "test.csv": {
+        "path": "C:\\Users\\ashut\\.cache\\huggingface\\hub\\datasets--yaful--MAGE\\snapshots\\342663f0a2b775455c023f5d36a1341ff0ec5402\\test.csv",
+        "purpose": "in-distribution testbed",
+        "sha256": "dcb8a8a8de1459d382ac2da5e0f1c39452e8bc47d186d7393f3ed4308f762ac7",
+        "size_bytes": 71739623
+      },
+      "test_ood_set_gpt.csv": {
+        "path": "C:\\Users\\ashut\\.cache\\huggingface\\hub\\datasets--yaful--MAGE\\snapshots\\342663f0a2b775455c023f5d36a1341ff0ec5402\\test_ood_set_gpt.csv",
+        "purpose": "unseen domain + GPT-4 (the 'wild' stratum)",
+        "sha256": "b9fe1faaa45fbbad446f527da12d42e3e9e3bbd207f7ea054e81ec8e922016d2",
+        "size_bytes": 2191864
+      },
+      "test_ood_set_gpt_para.csv": {
+        "path": "C:\\Users\\ashut\\.cache\\huggingface\\hub\\datasets--yaful--MAGE\\snapshots\\342663f0a2b775455c023f5d36a1341ff0ec5402\\test_ood_set_gpt_para.csv",
+        "purpose": "paraphrase attack (hardest stratum)",
+        "sha256": "a587909d155447ea2768cbd8f695a7febb65cdd7414da5c3b5ff6d6397463725",
+        "size_bytes": 3614100
+      },
+      "valid.csv": {
+        "path": "C:\\Users\\ashut\\.cache\\huggingface\\hub\\datasets--yaful--MAGE\\snapshots\\342663f0a2b775455c023f5d36a1341ff0ec5402\\valid.csv",
+        "purpose": "calibration split - never used for reporting",
+        "sha256": "005e200957a4da551c8ac37079f43811db9c32f5141e3bdabb1caa257588691f",
+        "size_bytes": 72276577
+      }
+    },
+    "label_convention": "0=machine, 1=human (INVERTED - flip at ingest)",
+    "license": "apache-2.0",
+    "repo": "yaful/MAGE",
+    "revision": "342663f0a2b775455c023f5d36a1341ff0ec5402"
+  }
+}

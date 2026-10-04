@@ -1,0 +1,221 @@
+{
+  "behaviour_env": {
+    "ALUDAM_MODELS_DIR": {
+      "code_default": null,
+      "effective": null,
+      "set": false,
+      "value": null
+    },
+    "AUDIO_CLASSIFIER_PATH": {
+      "code_default": "models/audio_rf_classifier.pkl",
+      "effective": "models/audio_rf_classifier.pkl",
+      "set": false,
+      "value": null
+    },
+    "AUDIO_DETECTOR_MODEL": {
+      "code_default": "MelodyMachine/Deepfake-audio-detection-V2",
+      "effective": "MelodyMachine/Deepfake-audio-detection-V2",
+      "set": false,
+      "value": null
+    },
+    "DEEPFAKE_ALLOW_DOWNLOADS": {
+      "code_default": null,
+      "effective": null,
+      "set": false,
+      "value": null
+    },
+    "DEEPGUARD_FACE_DETECTOR": {
+      "code_default": "haar",
+      "effective": "haar",
+      "set": false,
+      "value": null
+    },
+    "DEEPGUARD_HEAVY_DEPS": {
+      "code_default": "auto",
+      "effective": "auto",
+      "set": false,
+      "value": null
+    },
+    "GEMINI_API_KEY": {
+      "set": false,
+      "value": "<redacted>"
+    },
+    "HF_HOME": {
+      "code_default": null,
+      "effective": null,
+      "set": false,
+      "value": null
+    },
+    "HF_HUB_OFFLINE": {
+      "code_default": null,
+      "effective": null,
+      "set": false,
+      "value": null
+    },
+    "HF_TOKEN": {
+      "set": false,
+      "value": "<redacted>"
+    },
+    "HUGGING_FACE_HUB_TOKEN": {
+      "set": false,
+      "value": "<redacted>"
+    },
+    "IMAGE_DETECTOR_MODEL": {
+      "code_default": "umm-maybe/AI-image-detector",
+      "effective": "umm-maybe/AI-image-detector",
+      "set": false,
+      "value": null
+    },
+    "TEXT_DETECTOR_PROBE_MODEL": {
+      "code_default": "gpt2",
+      "effective": "gpt2",
+      "set": false,
+      "value": null
+    },
+    "TRANSFORMERS_CACHE": {
+      "code_default": null,
+      "effective": null,
+      "set": false,
+      "value": null
+    }
+  },
+  "datasets": {
+    "available": true,
+    "datasets": {
+      "hc3": {
+        "files": {
+          "all.jsonl": {
+            "sha256": "ee231f82283d754050a4dc58ecf9331afaf5daea7283c6da0b096ed0fb2774cf",
+            "size_bytes": 73722850
+          }
+        },
+        "license": "cc-by-sa-4.0",
+        "repo": "Hello-SimpleAI/HC3",
+        "revision": "4d0ff18143b5a7e1b1e79beb540c04549d1e59d3"
+      },
+      "mage": {
+        "files": {
+          "test.csv": {
+            "sha256": "dcb8a8a8de1459d382ac2da5e0f1c39452e8bc47d186d7393f3ed4308f762ac7",
+            "size_bytes": 71739623
+          },
+          "test_ood_set_gpt.csv": {
+            "sha256": "b9fe1faaa45fbbad446f527da12d42e3e9e3bbd207f7ea054e81ec8e922016d2",
+            "size_bytes": 2191864
+          },
+          "test_ood_set_gpt_para.csv": {
+            "sha256": "a587909d155447ea2768cbd8f695a7febb65cdd7414da5c3b5ff6d6397463725",
+            "size_bytes": 3614100
+          },
+          "valid.csv": {
+            "sha256": "005e200957a4da551c8ac37079f43811db9c32f5141e3bdabb1caa257588691f",
+            "size_bytes": 72276577
+          }
+        },
+        "license": "apache-2.0",
+        "repo": "yaful/MAGE",
+        "revision": "342663f0a2b775455c023f5d36a1341ff0ec5402"
+      }
+    }
+  },
+  "git": {
+    "branch": "main",
+    "dirty": true,
+    "dirty_count": 2,
+    "dirty_files": [
+      "?? ALUDAM_PLAN.md",
+      "?? aludam/"
+    ],
+    "sha": "ff3f032f46322b422b17979cb0df401e1066a14e",
+    "subject": "Fixing storage isue"
+  },
+  "hf_revisions": {
+    "cache_roots": [
+      "C:\\Users\\ashut\\.cache\\huggingface\\hub"
+    ],
+    "repos": {
+      "datasets--Hello-SimpleAI--HC3": [
+        "4d0ff18143b5a7e1b1e79beb540c04549d1e59d3"
+      ],
+      "datasets--yaful--MAGE": [
+        "342663f0a2b775455c023f5d36a1341ff0ec5402"
+      ],
+      "models--EleutherAI--gpt-neo-2.7B": [
+        "e24fa291132763e59f4a5422741b424fb5d59056"
+      ],
+      "models--MelodyMachine--Deepfake-audio-detection-V2": [
+        "de3cde5a29c449bb5268814e421b46bf6ebdcd72"
+      ],
+      "models--Systran--faster-whisper-tiny": [
+        "d90ca5fe260221311c53c58e660288d3deb8d356"
+      ],
+      "models--gpt2": [
+        "607a30d783dfa663caf39e06633721c8d4cfcd7e"
+      ],
+      "models--sentence-transformers--all-MiniLM-L6-v2": [
+        "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+      ],
+      "models--umm-maybe--AI-image-detector": [
+        "c7e223baf11bc40528af364ba7bdea030ef42f9e"
+      ]
+    }
+  },
+  "library_versions": {
+    "PIL": "10.0.0",
+    "cv2": "4.11.0",
+    "librosa": "0.10.1",
+    "numpy": "1.24.3",
+    "onnxruntime": "MISSING (ModuleNotFoundError)",
+    "pandas": "2.3.3",
+    "scipy": "1.11.2",
+    "sklearn": "1.3.0",
+    "torch": "2.5.1+cpu",
+    "transformers": "4.44.0"
+  },
+  "opencv": {
+    "build_information": "\nGeneral configuration for OpenCV 4.11.0 =====================================\n  Version control:               4.11.0\n\n  Extra modules:\n    Location (extra):            D:/a/opencv-python/opencv-python/opencv_contrib/modules\n    Version control (extra):     4.11.0\n\n  Platform:\n    Timestamp:                   2025-01-16T09:56:43Z\n    Host:                        Windows 10.0.17763 AMD64\n    CMake:                       3.24.2\n    CMake generator:             Visual Studio 14 2015\n    CMake build tool:            MSBuild.exe\n    MSVC:                        1900\n    Configuration:               Debug Release\n    Algorithm Hint:              ALGO_HINT_ACCURATE\n\n  CPU/HW features:\n    Baseline:                    SSE SSE2 SSE3\n      requested:                 SSE3\n    Dispatched code generation:  SSE4_1 SSE4_2 AVX FP16 AVX2\n      requested:                 SSE4_1 SSE4_2 AVX FP16 AVX2 AVX512_SKX\n      SSE4_1 (16 files):         + SSSE3 SSE4_1\n      SSE4_2 (1 files):          + SSSE3 SSE4_1 POPCNT SSE4_2\n      AVX (8 files):             + SSSE3 SSE4_1 POPCNT SSE4_2 AVX\n      FP16 (0 files):            + SSSE3 SSE4_1 POPCNT SSE4_2 AVX FP16\n      AVX2 (36 files):           + SSSE3 SSE4_1 POPCNT SSE4_2 AVX FP16 AVX2 FMA3\n\n  C/C++:\n    Built as dynamic libs?:      NO\n    C++ standard:                11\n    C++ Compiler:                C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/bin/x86_amd64/cl.exe  (ver 19.0.24247.2)\n    C++ flags (Release):         /DWIN32 /D_WINDOWS /W4 /GR  /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE /D _SCL_SECURE_NO_WARNINGS /Gy /bigobj /Oi  /fp:precise    /EHa /wd4127 /wd4251 /wd4324 /wd4275 /wd4512 /wd4589 /wd4819 /MP  /O2 /Ob2 /DNDEBUG \n    C++ flags (Debug):           /DWIN32 /D_WINDOWS /W4 /GR  /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE /D _SCL_SECURE_NO_WARNINGS /Gy /bigobj /Oi  /fp:precise    /EHa /wd4127 /wd4251 /wd4324 /wd4275 /wd4512 /wd4589 /wd4819 /MP  /Zi /Ob0 /Od /RTC1 \n    C Compiler:                  C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/bin/x86_amd64/cl.exe\n    C flags (Release):           /DWIN32 /D_WINDOWS /W3  /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE /D _SCL_SECURE_NO_WARNINGS /Gy /bigobj /Oi  /fp:precise    /MP   /O2 /Ob2 /DNDEBUG \n    C flags (Debug):             /DWIN32 /D_WINDOWS /W3  /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE /D _SCL_SECURE_NO_WARNINGS /Gy /bigobj /Oi  /fp:precise    /MP /Zi /Ob0 /Od /RTC1 \n    Linker flags (Release):      /machine:x64  /NODEFAULTLIB:atlthunk.lib /INCREMENTAL:NO  /NODEFAULTLIB:libcmtd.lib /NODEFAULTLIB:libcpmtd.lib /NODEFAULTLIB:msvcrtd.lib\n    Linker flags (Debug):        /machine:x64  /NODEFAULTLIB:atlthunk.lib /debug /INCREMENTAL  /NODEFAULTLIB:libcmt.lib /NODEFAULTLIB:libcpmt.lib /NODEFAULTLIB:msvcrt.lib\n    ccache:                      NO\n    Precompiled headers:         YES\n    Extra dependencies:          wsock32 comctl32 gdi32 ole32 setupapi ws2_32\n    3rdparty dependencies:       libprotobuf ade ittnotify libjpeg-turbo libwebp libpng libtiff libopenjp2 IlmImf zlib ippiw ippicv\n\n  OpenCV modules:\n    To be built:                 aruco bgsegm bioinspired calib3d ccalib core datasets dnn dnn_objdetect dnn_superres dpm face features2d flann fuzzy gapi hfs highgui img_hash imgcodecs imgproc intensity_transform line_descriptor mcc ml objdetect optflow phase_unwrapping photo plot python3 quality rapid reg rgbd saliency shape signal stereo stitching structured_light superres surface_matching text tracking video videoio videostab wechat_qrcode xfeatures2d ximgproc xobjdetect xphoto\n    Disabled:                    java world\n    Disabled by dependency:      -\n    Unavailable:                 alphamat cannops cudaarithm cudabgsegm cudacodec cudafeatures2d cudafilters cudaimgproc cudalegacy cudaobjdetect cudaoptflow cudastereo cudawarping cudev cvv fastcv freetype hdf julia matlab ovis python2 sfm ts viz\n    Applications:                -\n    Documentation:               NO\n    Non-free algorithms:         NO\n\n  Windows RT support:            NO\n\n  GUI:                           WIN32UI\n    Win32 UI:                    YES\n    VTK support:                 NO\n\n  Media I/O: \n    ZLib:                        build (ver 1.3.1)\n    JPEG:                        build-libjpeg-turbo (ver 3.0.3-70)\n      SIMD Support Request:      YES\n      SIMD Support:              YES\n    WEBP:                        build (ver decoder: 0x0209, encoder: 0x020f, demux: 0x0107)\n    AVIF:                        NO\n    PNG:                         build (ver 1.6.43)\n      SIMD Support Request:      YES\n      SIMD Support:              YES (Intel SSE)\n    TIFF:                        build (ver 42 - 4.6.0)\n    JPEG 2000:                   build (ver 2.5.0)\n    OpenEXR:                     build (ver 2.3.0)\n    GIF:                         NO\n    HDR:                         YES\n    SUNRASTER:                   YES\n    PXM:                         YES\n    PFM:                         YES\n\n  Video I/O:\n    FFMPEG:                      YES (prebuilt binaries)\n      avcodec:                   YES (58.134.100)\n      avformat:                  YES (58.76.100)\n      avutil:                    YES (56.70.100)\n      swscale:                   YES (5.9.100)\n      avresample:                YES (4.0.0)\n    GStreamer:                   NO\n    DirectShow:                  YES\n    Media Foundation:            YES\n      DXVA:                      YES\n\n  Parallel framework:            Concurrency\n\n  Trace:                         YES (with Intel ITT)\n\n  Other third-party libraries:\n    Intel IPP:                   2021.12.0 [2021.12.0]\n           at:                   D:/a/opencv-python/opencv-python/_skbuild/win-amd64-3.9/cmake-build/3rdparty/ippicv/ippicv_win/icv\n    Intel IPP IW:                sources (2021.12.0)\n              at:                D:/a/opencv-python/opencv-python/_skbuild/win-amd64-3.9/cmake-build/3rdparty/ippicv/ippicv_win/iw\n    Lapack:                      NO\n    Eigen:                       NO\n    Custom HAL:                  NO\n    Protobuf:                    build (3.19.1)\n    Flatbuffers:                 builtin/3rdparty (23.5.9)\n\n  OpenCL:                        YES (NVD3D11)\n    Include path:                D:/a/opencv-python/opencv-python/opencv/3rdparty/include/opencl/1.2\n    Link libraries:              Dynamic load\n\n  Python 3:\n    Interpreter:                 C:/hostedtoolcache/windows/Python/3.9.13/x64/python.exe (ver 3.9.13)\n    Libraries:                   C:/hostedtoolcache/windows/Python/3.9.13/x64/libs/python39.lib (ver 3.9.13)\n    Limited API:                 YES (ver 0x03060000)\n    numpy:                       C:/hostedtoolcache/windows/Python/3.9.13/x64/lib/site-packages/numpy/_core/include (ver 2.0.2)\n    install path:                python/cv2/python-3\n\n  Python (for build):            C:\\hostedtoolcache\\windows\\Python\\3.9.13\\x64\\python.exe\n\n  Java:                          \n    ant:                         NO\n    Java:                        YES (ver 1.8.0.432)\n    JNI:                         C:/hostedtoolcache/windows/Java_Temurin-Hotspot_jdk/8.0.432-6/x64/include C:/hostedtoolcache/windows/Java_Temurin-Hotspot_jdk/8.0.432-6/x64/include/win32 C:/hostedtoolcache/windows/Java_Temurin-Hotspot_jdk/8.0.432-6/x64/include\n    Java wrappers:               NO\n    Java tests:                  NO\n\n  Install to:                    D:/a/opencv-python/opencv-python/_skbuild/win-amd64-3.9/cmake-install\n-----------------------------------------------------------------\n\n",
+    "candidates": {
+      "opencv-contrib-python": {
+        "cv2_path": "C:\\Users\\ashut\\Downloads\\Deep-Fake-Analysis\\.venv\\Lib\\site-packages\\cv2",
+        "is_active": true,
+        "path_match": true,
+        "version": "4.11.0.86",
+        "version_match": true
+      },
+      "opencv-python": {
+        "cv2_path": "C:\\Users\\ashut\\Downloads\\Deep-Fake-Analysis\\.venv\\Lib\\site-packages\\cv2",
+        "is_active": false,
+        "path_match": true,
+        "version": "4.8.0.76",
+        "version_match": false
+      }
+    },
+    "contrib_active": true,
+    "contrib_modules": [
+      "dnn_superres",
+      "face",
+      "text",
+      "ximgproc"
+    ],
+    "cv2_file": "C:\\Users\\ashut\\Downloads\\Deep-Fake-Analysis\\.venv\\Lib\\site-packages\\cv2\\__init__.py",
+    "cv2_realpath": "C:\\Users\\ashut\\Downloads\\Deep-Fake-Analysis\\.venv\\Lib\\site-packages\\cv2\\__init__.py",
+    "cv2_version": "4.11.0",
+    "importable": true,
+    "owner": "opencv-contrib-python"
+  },
+  "pip_freeze": "absl-py==2.5.0\n-e git+https://github.com/Ashutosh3021/Deep-Fake-Analysis@ff3f032f46322b422b17979cb0df401e1066a14e#egg=aludam&subdirectory=aludam\nannotated-types==0.8.0\nastunparse==1.6.3\nattrs==26.1.0\naudioread==3.1.0\nbackports.tarfile==1.2.0\nbeautifulsoup4==4.15.0\nblinker==1.9.0\nbuild==1.6.1\ncertifi==2026.7.22\ncffi==2.1.1\ncharset-normalizer==3.5.2\nclick==8.5.0\ncloudpickle==3.1.2\ncolorama==0.4.6\ncontourpy==1.3.2\ncryptography==50.0.2\ncycler==0.12.1\ndecorator==5.3.1\ndnspython==2.8.0\ndocutils==0.23\neventlet==0.33.3\nfilelock==3.32.3\nFlask==2.3.3\nFlask-Cors==4.0.0\nflatbuffers==25.12.19\nfonttools==4.66.1\nfsspec==2026.7.0\ngast==0.7.0\ngdown==6.4.1\ngoogle-ai-generativelanguage==0.6.6\ngoogle-api-core==1.34.1\ngoogle-api-python-client==2.200.0\ngoogle-auth==2.59.1\ngoogle-auth-httplib2==0.4.3\ngoogle-generativeai==0.7.2\ngoogle-pasta==0.2.0\ngoogleapis-common-protos==1.73.0\ngreenlet==3.5.6\ngrpcio==1.84.0\ngrpcio-status==1.49.0rc1\ngunicorn==21.2.0\nh5py==3.14.0\nhttplib2==0.32.0\nhuggingface_hub==0.36.2\nid==1.6.1\nidna==3.20\nimportlib_metadata==9.0.1\nitsdangerous==2.2.0\njaraco.classes==3.4.0\njaraco.context==6.1.2\njaraco.functools==4.6.0\nJinja2==3.1.6\njoblib==1.6.0\nkeras==3.15.1\nkeyring==25.7.0\nkiwisolver==1.5.1\nlazy-loader==0.6\nlibclang==18.1.1\nlibrosa==0.10.1\nllvmlite==0.50.0\nlxml==6.1.3\nMarkdown==3.11\nmarkdown-it-py==4.2.0\nMarkupSafe==3.0.3\nmatplotlib==3.10.9\nmdurl==0.1.2\nmediapipe==0.10.5\nml-dtypes==0.4.1\nmore-itertools==11.1.0\nmpmath==1.3.0\nmsgpack==1.2.3\nnamex==0.1.0\nnetworkx==3.6.1\nnh3==0.3.7\nnumba==0.68.0\nnumpy==1.24.3\nopencv-contrib-python==4.11.0.86\nopencv-python==4.8.0.76\nopt_einsum==3.4.0\noptree==0.20.0\npackaging==26.3\npandas==2.3.3\nPillow==10.0.0\nplatformdirs==4.12.2\npooch==1.9.0\nproto-plus==1.27.1\nprotobuf==3.20.3\npsutil==7.2.2\npy-cpuinfo==9.0.0\npyasn1==0.6.4\npyasn1_modules==0.4.2\npycparser==3.0\npydantic==2.13.5\npydantic_core==2.46.5\nPygments==2.21.0\npyparsing==3.3.3\npypdf==6.19.0\npyproject_hooks==1.3.3\nPySocks==1.7.1\npython-dateutil==2.9.0.post0\npython-docx==1.2.0\npython-dotenv==1.0.0\npytz==2026.4\npywin32-ctypes==0.2.3\nPyYAML==6.0.3\nreadme_renderer==46.0\nregex==2026.9.29\nrequests==2.34.2\nrequests-toolbelt==1.0.0\nretina-face==0.0.13\nrfc3986==2.0.0\nrich==15.0.0\nsafetensors==0.8.0\nscikit-learn==1.3.0\nscipy==1.11.2\nseaborn==0.13.2\nsix==1.17.0\nsounddevice==0.5.6\nsoundfile==0.12.1\nsoupsieve==2.10\nsoxr==1.1.0\nsympy==1.13.1\ntensorboard==2.17.1\ntensorboard-data-server==0.7.2\ntensorflow==2.17.1\ntensorflow-intel==2.17.1\ntensorflow-io-gcs-filesystem==0.31.0\ntermcolor==3.3.0\ntf_keras==2.17.0\nthop==0.1.1.post2209072238\nthreadpoolctl==3.7.0\ntokenizers==0.19.1\ntorch==2.5.1+cpu\ntorchvision==0.20.1\ntqdm==4.70.1\ntransformers==4.44.0\ntwine==7.0.0\ntyping-inspection==0.4.4\ntyping_extensions==4.16.0\ntzdata==2026.4\nultralytics==8.2.0\nuritemplate==4.2.0\nurllib3==2.8.0\nWerkzeug==2.3.7\nwrapt==2.5.0\nzipp==4.1.1",
+  "pip_opencv": [
+    "opencv-contrib-python==4.11.0.86",
+    "opencv-python==4.8.0.76"
+  ],
+  "platform": {
+    "machine": "AMD64",
+    "processor": "AMD64 Family 25 Model 80 Stepping 0, AuthenticAMD",
+    "system": "Windows-10-10.0.26200-SP0"
+  },
+  "python": {
+    "executable": "C:\\Users\\ashut\\Downloads\\Deep-Fake-Analysis\\.venv\\Scripts\\python.exe",
+    "implementation": "CPython",
+    "version": "3.11.6 (tags/v3.11.6:8b6ee5b, Oct  2 2023, 14:57:12) [MSC v.1935 64 bit (AMD64)]"
+  }
+}

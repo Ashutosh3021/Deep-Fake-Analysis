@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aludam-fullplate"
+version = "1.0.0"
+description = "Neural tier of aludam: same API and DetectionResult, plus the full torch/transformers stack the detectors need."
+readme = "README.md"
+requires-python = ">=3.10"
+# PEP 639: SPDX expression + explicit files, so THIRD_PARTY_NOTICES ships in
+# the wheel too (install-time LICENSE globs would not pick up that filename).
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES"]
+authors = [{ name = "Ashutosh Patra" }]
+keywords = ["deepfake", "ai-detection", "forensics", "neural"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+    "Typing :: Typed",
+]
+
+# One dependency, one dependency list. `aludam` owns the `neural` extra, so
+# the heavy stack has exactly one source of truth (ALUDAM_PLAN.md sec 6.2):
+# `pip install aludam-fullplate` and `pip install "aludam[neural]"` install
+# the same thing. The ~= pin is asserted against aludam's version by
+# tests/test_fullplate.py.
+dependencies = ["aludam[neural]~=1.0.0"]
+
+[project.urls]
+Repository = "https://github.com/Ashutosh3021/Deep-Fake-Analysis"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+aludam_fullplate = ["py.typed"]

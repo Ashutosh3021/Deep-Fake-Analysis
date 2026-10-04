@@ -1,0 +1,18 @@
+# Third-party notices
+
+`aludam-fullplate`'s own code is MIT licensed (see `LICENSE`). The package
+ships one small module (a re-export of `aludam`) and no third-party code of
+its own.
+
+It declares exactly one dependency, `aludam[neural]`, so the dependency,
+model-weight and evaluation-data inventory lives in one place: the
+`THIRD_PARTY_NOTICES` file inside the `aludam` distribution, where every row
+was verified against a named source on 2026-10-04. This file exists so this
+distribution carries a notice next to its own license; it adds no rows
+because it declares no dependencies beyond `aludam` itself.
+
+Model weights are never bundled with either distribution; `aludam fetch`
+downloads them at runtime under their own licenses, listed in `aludam`'s
+notices.
+
+This is not legal advice.

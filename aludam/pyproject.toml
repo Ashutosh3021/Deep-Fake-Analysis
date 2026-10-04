@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aludam"
+version = "1.0.0"
+description = "Uniform deepfake / AI-content detection with scored, explained results."
+readme = "README.md"
+requires-python = ">=3.10"
+# PEP 639: SPDX expression + explicit files, so THIRD_PARTY_NOTICES ships in
+# the wheel too (install-time LICENSE globs would not pick up that filename).
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES"]
+authors = [{ name = "Ashutosh Patra" }]
+keywords = ["deepfake", "ai-detection", "forensics", "provenance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+    "Typing :: Typed",
+]
+
+# Light tier: runs provenance (C2PA/EXIF), document extraction and text
+# stylometry with no transformer and no torch. Deliberately small - see
+# ALUDAM_PLAN.md sec 5.2: the light tier carries NONE of the neural accuracy
+# gains. That downgrade is intentional and documented, not accidental.
+dependencies = [
+    "pillow>=9.0.0",
+    "numpy>=1.24",
+    "pypdf>=4.0.0",
+    "python-docx>=1.1.0",
+]
+
+[project.optional-dependencies]
+# Single source of truth for the heavy stack. `aludam-fullplate` depends on
+# this extra so there is exactly one dependency list to maintain.
+#
+# opencv-python-headless only - never install a second variant alongside it.
+# `mediapipe` pulls opencv-contrib-python and `retina-face`/`ultralytics` pull
+# opencv-python; two `cv2` trees in one site-packages is undefined behaviour.
+neural = [
+    "torch>=2.0.0",
+    "transformers>=4.36.0",
+    # Declared explicitly rather than leaned on through `transformers`:
+    # `aludam fetch` imports it directly, and a transitive dependency that
+    # silently changes is how a fetch step ends up broken in the field.
+    "huggingface_hub>=0.20.0",
+    "timm>=0.9.0",
+    "peft>=0.7.0",
+    "opencv-python-headless>=4.8,<5",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "scipy>=1.10",
+    "onnxruntime>=1.16",
+]
+
+[project.scripts]
+aludam = "aludam.cli:main"
+
+[project.urls]
+Repository = "https://github.com/Ashutosh3021/Deep-Fake-Analysis"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+aludam = ["py.typed", "data/*.json"]
