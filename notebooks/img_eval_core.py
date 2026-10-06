@@ -496,6 +496,73 @@ def _ext_for(fmt: str) -> str:
     return {"JPEG": ".jpg", "PNG": ".png"}.get((fmt or "").upper(), ".img")
 
 
+_SHA_MEMO: Dict[str, str] = {}
+
+
+def _fetch_row_from_shard(cache_dir: Path, r: Dict[str, Any],
+                          log: Callable[[str], None] = _log) -> Optional[str]:
+    """Last-resort: read one row's payload straight from its parquet shard.
+
+    Used when datasets-server persistently 500s on a specific row (bad row
+    server-side). Locates the row via the image_meta cache, then reads only
+    the row group that contains it. Returns None on success, else the error.
+    """
+    import warnings as _w
+
+    _w.filterwarnings("ignore")
+    import pyarrow.parquet as pq
+    from fsspec.core import url_to_fs
+
+    shard = str(r.get("shard") or "")
+    name = str(r.get("image_name") or "")
+    if not shard or not name:
+        return "missing shard/image_name for direct read"
+    meta_path = (cache_dir.parent / "image_meta"
+                 / f"{int(shard.split('-')[1]):05d}.json")
+    if not meta_path.exists():
+        return f"shard meta cache missing: {meta_path.name}"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    local = next((k for k, m in enumerate(meta)
+                  if str(m.get("image_name")) == name), None)
+    if local is None:
+        return "image_name not found in shard meta cache"
+
+    if "sha" not in _SHA_MEMO:
+        _SHA_MEMO["sha"] = resolve_revision()
+    sha = _SHA_MEMO["sha"]
+    url = (f"https://huggingface.co/datasets/{DATASET_REPO}"
+           f"/resolve/{sha}/{shard}")
+    fs, _ = url_to_fs(url, block_size=16 << 20)
+    pf = pq.ParquetFile(url, filesystem=fs)
+    start, target = 0, None
+    for rg in range(pf.metadata.num_row_groups):
+        n = pf.metadata.row_group(rg).num_rows
+        if start <= local < start + n:
+            target = (rg, local - start)
+            break
+        start += n
+    if target is None:
+        return "row-group lookup failed"
+    tbl = pf.read_row_group(target[0], columns=["image_data", "image_name"])
+    names = tbl.column("image_name").to_pylist()
+    if name not in names:
+        return "row not present in target row-group"
+    j = names.index(name)
+    cell = tbl.column("image_data")[j].as_py()
+    if isinstance(cell, dict) and "bytes" in cell:
+        raw = cell["bytes"] or b""
+    elif isinstance(cell, (bytes, bytearray)):
+        raw = bytes(cell)
+    else:
+        raw = base64.b64decode(str(cell) or "")
+    if not raw:
+        return "empty image_data in shard"
+    out = cache_dir / f"off{int(r['i']):06d}{_ext_for(str(r.get('format')))}"
+    out.write_bytes(raw)
+    log(f"[payload] direct-shard read rescued i={r['i']} ({len(raw)} bytes)")
+    return None
+
+
 def fetch_payload(
     selected: Sequence[Dict[str, Any]],
     cache_dir: Path,
@@ -569,6 +636,17 @@ def fetch_payload(
                 consec_ok = 0
                 if pass_no == 1:
                     failed_idx.append(r)  # -> patient pass 2
+                elif "HTTP Error 5" in err:
+                    # row-specific server bug: bypass the endpoint entirely
+                    log(f"[payload] endpoint 500 on i={r['i']}; "
+                        "trying direct shard read")
+                    alt = _fetch_row_from_shard(cache_dir, r, log=log)
+                    if alt is None:
+                        stats["downloaded"] += 1
+                    else:
+                        stats["failed"] += 1
+                        log(f"[payload] FAIL i={r['i']}: {err} "
+                            f"| fallback: {alt}")
                 else:
                     stats["failed"] += 1
                     log(f"[payload] FAIL i={r['i']}: {err}")
