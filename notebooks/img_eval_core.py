@@ -521,10 +521,14 @@ def fetch_payload(
     cur_pause = pause
     todo_pass2: List[Dict[str, Any]] = []
 
-    def grab(r: Dict[str, Any]) -> Optional[str]:
+    def transient(err: str) -> bool:
+        return any(t in err for t in
+                   ("429", "Too Many", "HTTP Error 5", "timed out", "Timeout"))
+
+    def grab(r: Dict[str, Any], tries: int) -> Optional[str]:
         i = int(r["i"])
         try:
-            data = _http_json(_rows_url(i, 1), timeout=90, tries=5)
+            data = _http_json(_rows_url(i, 1), timeout=90, tries=tries)
             row = data["rows"][0]["row"]
             if str(row.get("image_name")) != str(r.get("image_name")):
                 return (f"offset drift at i={i}: expected "
@@ -544,26 +548,38 @@ def fetch_payload(
         items = todo if pass_no == 1 else todo_pass2
         if not items:
             break
+        tries = 2 if pass_no == 1 else 6   # pass 1 fails fast, pass 2 patient
         if pass_no == 2:
             cur_pause = max(cur_pause * 2, 0.5)
             log(f"[payload] retry pass with pause={cur_pause:.2f}s "
                  f"({len(items)} row(s))")
+        consec_ok = 0
         for n, r in enumerate(items, 1):
-            err = grab(r)
+            err = grab(r, tries)
             if err is None:
                 stats["downloaded"] += 1
-            elif pass_no == 1 and any(
-                t in err for t in ("429", "Too Many", "HTTP Error 5",
-                                   "timed out", "Timeout")
-            ):
-                failed_idx.append(r)  # transient (throttle/5xx) -> pass 2
+                consec_ok += 1
+                if consec_ok >= 15 and cur_pause > pause:
+                    # sustained success -> ease the throttle back down
+                    cur_pause = max(pause, cur_pause * 0.75)
+                    consec_ok = 0
+            elif transient(err):
+                # rate-limited/5xx: pace harder so later rows stop tripping
+                cur_pause = min(3.0, max(cur_pause, 0.1) * 2)
+                consec_ok = 0
+                if pass_no == 1:
+                    failed_idx.append(r)  # -> patient pass 2
+                else:
+                    stats["failed"] += 1
+                    log(f"[payload] FAIL i={r['i']}: {err}")
             else:
                 stats["failed"] += 1
                 log(f"[payload] FAIL i={r['i']}: {err}")
             if n % 50 == 0 or n == len(items):
                 rate = n / max(time.time() - t0, 1e-6)
                 eta = (len(items) - n) / max(rate, 1e-6)
-                log(f"[payload] p{pass_no} {n}/{len(items)}  eta {eta:.0f}s")
+                log(f"[payload] p{pass_no} {n}/{len(items)}  eta {eta:.0f}s"
+                    f"  pause={cur_pause:.2f}s")
             time.sleep(cur_pause)
         todo_pass2 = failed_idx
     if todo_pass2:

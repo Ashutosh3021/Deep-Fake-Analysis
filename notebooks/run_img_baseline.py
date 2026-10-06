@@ -121,10 +121,13 @@ def prepare():
     return selected, splits, evidence, warns
 
 
-def do_payload(selected) -> Dict[str, int]:
-    stats = core.fetch_payload(selected, PAYLOAD_DIR)
+def do_payload(sel) -> Dict[str, int]:
+    stats = core.fetch_payload(sel, PAYLOAD_DIR)
     print("payload:", stats)
-    state_save(payload_stats=stats)
+    prev = state_load().get("payload_stats") or {}
+    merged = {k: int(prev.get(k, 0)) + int(stats.get(k, 0))
+              for k in set(prev) | set(stats)}
+    state_save(payload_stats=merged)
     return stats
 
 
@@ -161,12 +164,24 @@ def do_analyze(selected, splits, evidence, warns) -> str:
 
 
 def main() -> None:
-    args = [a.lower() for a in sys.argv[1:]] or ["all"]
+    import re
+
+    payload_slice = None
+    args: list = []
+    for a in sys.argv[1:]:
+        m = re.fullmatch(r"(\d+):(\d+)", a)
+        if m:
+            payload_slice = (int(m.group(1)), int(m.group(2)))
+            continue
+        args.append(a.lower())
+    args = args or ["all"]
     if args == ["all"]:
         args = ["payload", "score", "analyze"]
     bad = [a for a in args if a not in VALID_STEPS]
     if bad:
         raise SystemExit(f"unknown step(s) {bad}; valid: {VALID_STEPS} or 'all'")
+    if payload_slice and "payload" not in args:
+        raise SystemExit("a:b slice is only valid with the payload step")
     if "index" in args and len(args) == 1:
         args = []  # index alone = just build+select, nothing else to do
 
@@ -174,7 +189,12 @@ def main() -> None:
     print("config:", CONFIG, "| steps:", args or ["index"])
     selected, splits, evidence, warns = prepare()
     if "payload" in args:
-        do_payload(selected)
+        sel = selected
+        if payload_slice:
+            lo, hi = payload_slice
+            sel = selected[lo:hi]
+            print(f"payload slice [{lo}:{hi}] -> {len(sel)} row(s)")
+        do_payload(sel)
     if "score" in args:
         do_score(selected)
     if "analyze" in args:

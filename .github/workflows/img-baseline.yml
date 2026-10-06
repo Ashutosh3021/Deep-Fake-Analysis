@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  baseline:
+  payload-first-half:
     runs-on: ubuntu-latest
     timeout-minutes: 355
     steps:
@@ -48,7 +48,6 @@ jobs:
           nohup bund listen > /tmp/bund-listen.log 2>&1 &
           sleep 2
           echo "bund listen started (pid $!); log: /tmp/bund-listen.log"
-          cat /tmp/bund-listen.log || true
 
       - name: restore HF weights cache
         uses: actions/cache@v4
@@ -56,7 +55,7 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-weights-ai-image-detector-v1
 
-      - name: restore eval data cache (index+payload+scores+state)
+      - name: restore eval data cache
         uses: actions/cache/restore@v4
         with:
           path: aludam/eval/data/index
@@ -64,15 +63,141 @@ jobs:
           restore-keys: |
             eval-
 
-      - name: step 1 - index + select + payload download
-        run: python -u notebooks/run_img_baseline.py payload
+      - name: step 1 - index + select
+        run: python -u notebooks/run_img_baseline.py index
 
-      - name: checkpoint payload
+      - name: checkpoint index
         if: always()
         uses: actions/cache/save@v4
         with:
           path: aludam/eval/data/index
-          key: eval-${{ github.run_id }}-payload
+          key: eval-${{ github.run_id }}-idx
+
+      - name: payload chunk 1/6 (rows 0-249)
+        run: python -u notebooks/run_img_baseline.py payload 0:250
+
+      - name: checkpoint chunk 1
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-p1
+
+      - name: payload chunk 2/6 (rows 250-499)
+        run: python -u notebooks/run_img_baseline.py payload 250:500
+
+      - name: checkpoint chunk 2
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-p2
+
+      - name: payload chunk 3/6 (rows 500-749)
+        run: python -u notebooks/run_img_baseline.py payload 500:750
+
+      - name: checkpoint chunk 3
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-p3
+
+      - name: notify on failure (bund)
+        if: failure()
+        env:
+          BUND_TOKEN: ${{ secrets.BUND_TOKEN }}
+          BUND_CHAT: ${{ secrets.BUND_CHAT }}
+        run: |
+          pip install -q bund || exit 0
+          if [ -n "$BUND_TOKEN" ]; then bund set --token "$BUND_TOKEN" || true; fi
+          if [ -n "$BUND_CHAT" ]; then bund set --chat "$BUND_CHAT" || true; fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          bund -m "img_det baseline: job 1 (index + payload 0-749) FAILED. Re-run it. $RUN_URL" || true
+
+  payload-and-result:
+    needs: payload-first-half
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: aludam/pyproject.toml
+
+      - name: system libs (cv2 safety net)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libgl1 libglib2.0-0
+
+      - name: install dependencies
+        run: |
+          python -m pip install -U pip -q
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q "./aludam[neural]" pyarrow "fsspec[http]" \
+            scikit-learn pandas requests aiohttp
+
+      - name: start bund listen (query /status from Telegram during the run)
+        env:
+          BUND_TOKEN: ${{ secrets.BUND_TOKEN }}
+          BUND_CHAT: ${{ secrets.BUND_CHAT }}
+        run: |
+          pip install -q bund || exit 0
+          if [ -n "$BUND_TOKEN" ]; then bund set --token "$BUND_TOKEN" || true; fi
+          if [ -n "$BUND_CHAT" ]; then bund set --chat "$BUND_CHAT" || true; fi
+          nohup bund listen > /tmp/bund-listen.log 2>&1 &
+          sleep 2
+          echo "bund listen started (pid $!); log: /tmp/bund-listen.log"
+
+      - name: restore HF weights cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-weights-ai-image-detector-v1
+
+      - name: restore eval data cache (job 1 checkpoints)
+        uses: actions/cache/restore@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-miss2-${{ github.run_id }}
+          restore-keys: |
+            eval-
+
+      - name: payload chunk 4/6 (rows 750-999)
+        run: python -u notebooks/run_img_baseline.py payload 750:1000
+
+      - name: checkpoint chunk 4
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-p4
+
+      - name: payload chunk 5/6 (rows 1000-1249)
+        run: python -u notebooks/run_img_baseline.py payload 1000:1250
+
+      - name: checkpoint chunk 5
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-p5
+
+      - name: payload chunk 6/6 (rows 1250-1499)
+        run: python -u notebooks/run_img_baseline.py payload 1250:1500
+
+      - name: checkpoint chunk 6
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-p6
+
+      - name: payload sweep (retry anything missed)
+        run: python -u notebooks/run_img_baseline.py payload 0:1500
 
       - name: step 2 - score
         run: python -u notebooks/run_img_baseline.py score
