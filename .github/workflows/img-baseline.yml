@@ -37,6 +37,19 @@ jobs:
           pip install -q "./aludam[neural]" pyarrow "fsspec[http]" \
             scikit-learn pandas requests aiohttp
 
+      - name: start bund listen (query /status from Telegram during the run)
+        env:
+          BUND_TOKEN: ${{ secrets.BUND_TOKEN }}
+          BUND_CHAT: ${{ secrets.BUND_CHAT }}
+        run: |
+          pip install -q bund || exit 0
+          if [ -n "$BUND_TOKEN" ]; then bund set --token "$BUND_TOKEN" || true; fi
+          if [ -n "$BUND_CHAT" ]; then bund set --chat "$BUND_CHAT" || true; fi
+          nohup bund listen > /tmp/bund-listen.log 2>&1 &
+          sleep 2
+          echo "bund listen started (pid $!); log: /tmp/bund-listen.log"
+          cat /tmp/bund-listen.log || true
+
       - name: restore HF weights cache
         uses: actions/cache@v4
         with:
