@@ -133,7 +133,8 @@ def _http_json(url: str, timeout: int = 60, tries: int = 6) -> Any:
                 base = 4.0
             else:
                 base = 1.5
-            time.sleep(min(60.0, base * (2 ** attempt)) + random.random())
+            if attempt < tries - 1:  # no point sleeping after the last try
+                time.sleep(min(60.0, base * (2 ** attempt)) + random.random())
     raise RuntimeError(f"GET failed after {tries} tries: {url}\n{last}")
 
 
@@ -499,13 +500,14 @@ def _ext_for(fmt: str) -> str:
 _SHA_MEMO: Dict[str, str] = {}
 
 
-def _fetch_row_from_shard(cache_dir: Path, r: Dict[str, Any],
-                          log: Callable[[str], None] = _log) -> Optional[str]:
-    """Last-resort: read one row's payload straight from its parquet shard.
+def _rescue_rows(cache_dir: Path, rows: Sequence[Dict[str, Any]],
+                 *, log: Callable[[str], None] = _log) -> Tuple[int, int]:
+    """Batch direct-shard rescue for rows the datasets-server permanently 500s.
 
-    Used when datasets-server persistently 500s on a specific row (bad row
-    server-side). Locates the row via the image_meta cache, then reads only
-    the row group that contains it. Returns None on success, else the error.
+    Those rows live in row-groups >300MB (the server's scan limit), so the
+    endpoint can never serve them; we read the parquet shard directly instead.
+    Groups rows by shard and reads each needed row-group exactly once.
+    Returns ``(rescued, failed)``.
     """
     import warnings as _w
 
@@ -513,54 +515,107 @@ def _fetch_row_from_shard(cache_dir: Path, r: Dict[str, Any],
     import pyarrow.parquet as pq
     from fsspec.core import url_to_fs
 
-    shard = str(r.get("shard") or "")
-    name = str(r.get("image_name") or "")
-    if not shard or not name:
-        return "missing shard/image_name for direct read"
-    meta_path = (cache_dir.parent / "image_meta"
-                 / f"{int(shard.split('-')[1]):05d}.json")
-    if not meta_path.exists():
-        return f"shard meta cache missing: {meta_path.name}"
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    local = next((k for k, m in enumerate(meta)
-                  if str(m.get("image_name")) == name), None)
-    if local is None:
-        return "image_name not found in shard meta cache"
+    by_shard: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        by_shard.setdefault(str(r.get("shard") or ""), []).append(r)
 
-    if "sha" not in _SHA_MEMO:
-        _SHA_MEMO["sha"] = resolve_revision()
-    sha = _SHA_MEMO["sha"]
-    url = (f"https://huggingface.co/datasets/{DATASET_REPO}"
-           f"/resolve/{sha}/{shard}")
-    fs, _ = url_to_fs(url, block_size=16 << 20)
-    pf = pq.ParquetFile(url, filesystem=fs)
-    start, target = 0, None
-    for rg in range(pf.metadata.num_row_groups):
-        n = pf.metadata.row_group(rg).num_rows
-        if start <= local < start + n:
-            target = (rg, local - start)
-            break
-        start += n
-    if target is None:
-        return "row-group lookup failed"
-    tbl = pf.read_row_group(target[0], columns=["image_data", "image_name"])
-    names = tbl.column("image_name").to_pylist()
-    if name not in names:
-        return "row not present in target row-group"
-    j = names.index(name)
-    cell = tbl.column("image_data")[j].as_py()
-    if isinstance(cell, dict) and "bytes" in cell:
-        raw = cell["bytes"] or b""
-    elif isinstance(cell, (bytes, bytearray)):
-        raw = bytes(cell)
-    else:
-        raw = base64.b64decode(str(cell) or "")
-    if not raw:
-        return "empty image_data in shard"
-    out = cache_dir / f"off{int(r['i']):06d}{_ext_for(str(r.get('format')))}"
-    out.write_bytes(raw)
-    log(f"[payload] direct-shard read rescued i={r['i']} ({len(raw)} bytes)")
-    return None
+    rescued = failed = 0
+    for shard, srows in sorted(by_shard.items()):
+        if not shard:
+            log("[payload] rescue: rows missing shard field")
+            failed += len(srows)
+            continue
+        meta_path = (cache_dir.parent / "image_meta"
+                     / f"{int(shard.split('-')[1]):05d}.json")
+        if not meta_path.exists():
+            log(f"[payload] rescue: meta cache missing for {shard}")
+            failed += len(srows)
+            continue
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        name2local = {str(m.get("image_name")): k
+                      for k, m in enumerate(meta)}
+        if "sha" not in _SHA_MEMO:
+            try:
+                _SHA_MEMO["sha"] = resolve_revision()
+            except Exception as exc:  # noqa: BLE001
+                log(f"[payload] rescue: sha resolve failed: {exc}")
+                failed += len(srows)
+                continue
+        url = (f"https://huggingface.co/datasets/{DATASET_REPO}"
+               f"/resolve/{_SHA_MEMO['sha']}/{shard}")
+        try:
+            fs, _ = url_to_fs(url, block_size=16 << 20)
+            pf = pq.ParquetFile(url, filesystem=fs)
+        except Exception as exc:  # noqa: BLE001
+            log(f"[payload] rescue: cannot open {shard}: {exc}")
+            failed += len(srows)
+            continue
+
+        bounds: List[Tuple[int, int, int]] = []
+        acc = 0
+        for rg in range(pf.metadata.num_row_groups):
+            n = pf.metadata.row_group(rg).num_rows
+            bounds.append((acc, acc + n, rg))
+            acc += n
+
+        by_rg: Dict[int, List[Tuple[Dict[str, Any], str]]] = {}
+        shard_fail: List[Tuple[Dict[str, Any], str]] = []
+        for r in srows:
+            name = str(r.get("image_name") or "")
+            local = name2local.get(name)
+            if local is None:
+                shard_fail.append((r, "image_name not in shard meta"))
+                continue
+            for st, en, rg in bounds:
+                if st <= local < en:
+                    by_rg.setdefault(rg, []).append((r, name))
+                    break
+            else:
+                shard_fail.append((r, "row-group lookup failed"))
+
+        n_done = 0
+        nbytes = 0
+        for rg, entries in by_rg.items():
+            try:
+                tbl = pf.read_row_group(rg, columns=["image_data", "image_name"])
+                names = tbl.column("image_name").to_pylist()
+            except Exception as exc:  # noqa: BLE001
+                log(f"[payload] rescue: rg {rg} read failed on {shard}: {exc}")
+                shard_fail.extend((r, f"rg read failed: {exc}")
+                                  for r, _ in entries)
+                continue
+            for r, name in entries:
+                if name not in names:
+                    shard_fail.append((r, "row absent in row-group"))
+                    continue
+                try:
+                    cell = tbl.column("image_data")[names.index(name)].as_py()
+                    if isinstance(cell, dict) and "bytes" in cell:
+                        raw = cell["bytes"] or b""
+                    elif isinstance(cell, (bytes, bytearray)):
+                        raw = bytes(cell)
+                    else:
+                        raw = base64.b64decode(str(cell) or "")
+                    if not raw:
+                        shard_fail.append((r, "empty image_data"))
+                        continue
+                    out = (cache_dir
+                           / f"off{int(r['i']):06d}"
+                             f"{_ext_for(str(r.get('format')))}")
+                    out.write_bytes(raw)
+                    n_done += 1
+                    nbytes += len(raw)
+                except Exception as exc:  # noqa: BLE001
+                    shard_fail.append((r, str(exc)))
+
+        log(f"[payload] direct-shard rescue {shard}: {n_done} row(s) "
+            f"({nbytes / 1e6:.1f} MB)"
+            + (f", {len(shard_fail)} failed" if shard_fail else ""))
+        for r, why in shard_fail:
+            log(f"[payload] FAIL i={r['i']}: rescue: {why}")
+        rescued += n_done
+        failed += len(shard_fail)
+    return rescued, failed
 
 
 def fetch_payload(
@@ -587,10 +642,14 @@ def fetch_payload(
     t0 = time.time()
     cur_pause = pause
     todo_pass2: List[Dict[str, Any]] = []
+    poison: List[Dict[str, Any]] = []
 
     def transient(err: str) -> bool:
         return any(t in err for t in
                    ("429", "Too Many", "HTTP Error 5", "timed out", "Timeout"))
+
+    def rate_limited(err: str) -> bool:
+        return any(t in err for t in ("429", "Too Many", "timed out", "Timeout"))
 
     def grab(r: Dict[str, Any], tries: int) -> Optional[str]:
         i = int(r["i"])
@@ -615,7 +674,9 @@ def fetch_payload(
         items = todo if pass_no == 1 else todo_pass2
         if not items:
             break
-        tries = 2 if pass_no == 1 else 6   # pass 1 fails fast, pass 2 patient
+        # pass 1: single fast probe (permanent 500s never get a second look);
+        # pass 2: patient retries for rate-limit/timeout rows only
+        tries = 1 if pass_no == 1 else 6
         if pass_no == 2:
             cur_pause = max(cur_pause * 2, 0.5)
             log(f"[payload] retry pass with pause={cur_pause:.2f}s "
@@ -630,23 +691,23 @@ def fetch_payload(
                     # sustained success -> ease the throttle back down
                     cur_pause = max(pause, cur_pause * 0.75)
                     consec_ok = 0
+            elif "HTTP Error 5" in err:
+                # permanent server-side scan-limit bug: the endpoint can
+                # never serve this row -> batch-rescue from the shard
+                consec_ok = 0
+                if pass_no == 1:
+                    poison.append(r)
+                else:
+                    stats["failed"] += 1
+                    log(f"[payload] FAIL i={r['i']}: {err}")
             elif transient(err):
-                # rate-limited/5xx: pace harder so later rows stop tripping
-                cur_pause = min(3.0, max(cur_pause, 0.1) * 2)
+                # rate-limit/timeout only: pace harder so later rows
+                # stop tripping (500s must NOT inflate the pause)
+                if rate_limited(err):
+                    cur_pause = min(3.0, max(cur_pause, 0.1) * 2)
                 consec_ok = 0
                 if pass_no == 1:
                     failed_idx.append(r)  # -> patient pass 2
-                elif "HTTP Error 5" in err:
-                    # row-specific server bug: bypass the endpoint entirely
-                    log(f"[payload] endpoint 500 on i={r['i']}; "
-                        "trying direct shard read")
-                    alt = _fetch_row_from_shard(cache_dir, r, log=log)
-                    if alt is None:
-                        stats["downloaded"] += 1
-                    else:
-                        stats["failed"] += 1
-                        log(f"[payload] FAIL i={r['i']}: {err} "
-                            f"| fallback: {alt}")
                 else:
                     stats["failed"] += 1
                     log(f"[payload] FAIL i={r['i']}: {err}")
@@ -660,6 +721,13 @@ def fetch_payload(
                     f"  pause={cur_pause:.2f}s")
             time.sleep(cur_pause)
         todo_pass2 = failed_idx
+        if poison:
+            log(f"[payload] {len(poison)} server-side poisoned row(s); "
+                "direct-shard rescue")
+            n_ok, n_bad = _rescue_rows(cache_dir, poison, log=log)
+            stats["downloaded"] += n_ok
+            stats["failed"] += n_bad
+            poison = []
     if todo_pass2:
         stats["failed"] += len(todo_pass2)
         for r in todo_pass2:
