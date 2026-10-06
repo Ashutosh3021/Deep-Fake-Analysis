@@ -126,8 +126,13 @@ def _http_json(url: str, timeout: int = 60, tries: int = 6) -> Any:
         except Exception as exc:  # noqa: BLE001 - retried, then raised
             last = exc
             msg = str(exc)
-            # 429s come from HF rate limiting - back off much harder.
-            base = 10.0 if ("429" in msg or "Too Many" in msg) else 1.5
+            # Distinguish rate-limit / server-side / client-side failures.
+            if "429" in msg or "Too Many" in msg:
+                base = 10.0
+            elif "HTTP Error 5" in msg or "timed out" in msg or "Timeout" in msg:
+                base = 4.0
+            else:
+                base = 1.5
             time.sleep(min(60.0, base * (2 ** attempt)) + random.random())
     raise RuntimeError(f"GET failed after {tries} tries: {url}\n{last}")
 
@@ -154,6 +159,7 @@ def _rows_url(offset: int, length: int = 1) -> str:
 # ---------------------------------------------------------------------------
 
 def _read_shard_meta(repo_url: str, sha: str, shard: str) -> List[Dict[str, Any]]:
+    """Read one shard's metadata columns, with HF-throttle-aware retries."""
     import warnings
 
     warnings.filterwarnings("ignore")
@@ -161,9 +167,18 @@ def _read_shard_meta(repo_url: str, sha: str, shard: str) -> List[Dict[str, Any]
     from fsspec.core import url_to_fs
 
     url = f"https://huggingface.co/datasets/{repo_url}/resolve/{sha}/{shard}"
-    fs, _ = url_to_fs(url, block_size=16 << 20)
-    table = pq.read_table(url, columns=INDEX_COLS, filesystem=fs)
-    return table.to_pylist()
+    last: Optional[Exception] = None
+    for attempt in range(6):
+        try:
+            fs, _ = url_to_fs(url, block_size=16 << 20)
+            table = pq.read_table(url, columns=INDEX_COLS, filesystem=fs)
+            return table.to_pylist()
+        except Exception as exc:  # noqa: BLE001 - throttling/5xx: back off
+            last = exc
+            msg = str(exc)
+            base = 8.0 if ("429" in msg or "Too Many" in msg) else 2.0
+            time.sleep(min(60.0, base * (2 ** attempt)) + random.random())
+    raise RuntimeError(f"shard read failed after retries: {shard}\n{last}")
 
 
 def build_index(
@@ -531,8 +546,11 @@ def fetch_payload(
             err = grab(r)
             if err is None:
                 stats["downloaded"] += 1
-            elif pass_no == 1 and ("429" in err or "Too Many" in err):
-                failed_idx.append(r)  # likely rate-limit -> pass 2
+            elif pass_no == 1 and any(
+                t in err for t in ("429", "Too Many", "HTTP Error 5",
+                                   "timed out", "Timeout")
+            ):
+                failed_idx.append(r)  # transient (throttle/5xx) -> pass 2
             else:
                 stats["failed"] += 1
                 log(f"[payload] FAIL i={r['i']}: {err}")
