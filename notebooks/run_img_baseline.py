@@ -51,6 +51,7 @@ import img_eval_core as core  # noqa: E402
 
 NEED = {"numpy": "numpy", "pandas": "pandas", "PIL": "Pillow",
         "cv2": "opencv-python", "pyarrow": "pyarrow", "fsspec": "fsspec",
+        "requests": "requests", "aiohttp": "aiohttp",
         "sklearn": "scikit-learn", "torch": "torch",
         "transformers": "transformers", "aludam": "aludam"}
 missing = [p for m, p in NEED.items() if importlib.util.find_spec(m) is None]

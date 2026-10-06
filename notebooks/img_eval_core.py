@@ -176,6 +176,12 @@ def _read_shard_meta(repo_url: str, sha: str, shard: str) -> List[Dict[str, Any]
         except Exception as exc:  # noqa: BLE001 - throttling/5xx: back off
             last = exc
             msg = str(exc)
+            # Dependency problems never heal by retrying - fail fast.
+            if (("requires" in msg and "to be installed" in msg)
+                    or "No module named" in msg):
+                raise RuntimeError(
+                    f"shard read failed (missing dependency): {shard}\n{last}"
+                ) from exc
             base = 8.0 if ("429" in msg or "Too Many" in msg) else 2.0
             time.sleep(min(60.0, base * (2 ** attempt)) + random.random())
     raise RuntimeError(f"shard read failed after retries: {shard}\n{last}")
