@@ -63,8 +63,15 @@ jobs:
           restore-keys: |
             eval-
 
-      - name: step 1 - index + select
-        run: python -u notebooks/run_img_baseline.py index
+      - name: stage - index + select
+        run: |
+          if python -u notebooks/run_img_baseline.py index; then
+            bund -m "img_det [job1] index+select OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job1] index+select FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: checkpoint index
         if: always()
@@ -73,8 +80,15 @@ jobs:
           path: aludam/eval/data/index
           key: eval-${{ github.run_id }}-idx
 
-      - name: payload chunk 1/6 (rows 0-249)
-        run: python -u notebooks/run_img_baseline.py payload 0:250
+      - name: stage - payload chunk 1/6 (rows 0-249)
+        run: |
+          if python -u notebooks/run_img_baseline.py payload 0:250; then
+            bund -m "img_det [job1] chunk 1/6 OK (0-249)" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job1] chunk 1/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: checkpoint chunk 1
         if: always()
@@ -83,8 +97,15 @@ jobs:
           path: aludam/eval/data/index
           key: eval-${{ github.run_id }}-p1
 
-      - name: payload chunk 2/6 (rows 250-499)
-        run: python -u notebooks/run_img_baseline.py payload 250:500
+      - name: stage - payload chunk 2/6 (rows 250-499)
+        run: |
+          if python -u notebooks/run_img_baseline.py payload 250:500; then
+            bund -m "img_det [job1] chunk 2/6 OK (250-499)" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job1] chunk 2/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: checkpoint chunk 2
         if: always()
@@ -93,8 +114,15 @@ jobs:
           path: aludam/eval/data/index
           key: eval-${{ github.run_id }}-p2
 
-      - name: payload chunk 3/6 (rows 500-749)
-        run: python -u notebooks/run_img_baseline.py payload 500:750
+      - name: stage - payload chunk 3/6 (rows 500-749)
+        run: |
+          if python -u notebooks/run_img_baseline.py payload 500:750; then
+            bund -m "img_det [job1] chunk 3/6 OK (500-749)" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job1] chunk 3/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: checkpoint chunk 3
         if: always()
@@ -166,8 +194,15 @@ jobs:
           restore-keys: |
             eval-
 
-      - name: payload chunk 4/6 (rows 750-999)
-        run: python -u notebooks/run_img_baseline.py payload 750:1000
+      - name: stage - payload chunk 4/6 (rows 750-999)
+        run: |
+          if python -u notebooks/run_img_baseline.py payload 750:1000; then
+            bund -m "img_det [job2] chunk 4/6 OK (750-999)" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] chunk 4/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: checkpoint chunk 4
         if: always()
@@ -176,8 +211,15 @@ jobs:
           path: aludam/eval/data/index
           key: eval-${{ github.run_id }}-p4
 
-      - name: payload chunk 5/6 (rows 1000-1249)
-        run: python -u notebooks/run_img_baseline.py payload 1000:1250
+      - name: stage - payload chunk 5/6 (rows 1000-1249)
+        run: |
+          if python -u notebooks/run_img_baseline.py payload 1000:1250; then
+            bund -m "img_det [job2] chunk 5/6 OK (1000-1249)" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] chunk 5/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: checkpoint chunk 5
         if: always()
@@ -186,8 +228,15 @@ jobs:
           path: aludam/eval/data/index
           key: eval-${{ github.run_id }}-p5
 
-      - name: payload chunk 6/6 (rows 1250-1499)
-        run: python -u notebooks/run_img_baseline.py payload 1250:1500
+      - name: stage - payload chunk 6/6 (rows 1250-1499)
+        run: |
+          if python -u notebooks/run_img_baseline.py payload 1250:1500; then
+            bund -m "img_det [job2] chunk 6/6 OK (1250-1499)" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] chunk 6/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: checkpoint chunk 6
         if: always()
@@ -196,11 +245,25 @@ jobs:
           path: aludam/eval/data/index
           key: eval-${{ github.run_id }}-p6
 
-      - name: payload sweep (retry anything missed)
-        run: python -u notebooks/run_img_baseline.py payload 0:1500
+      - name: stage - payload sweep (rescue stragglers)
+        run: |
+          if python -u notebooks/run_img_baseline.py payload 0:1500; then
+            bund -m "img_det [job2] sweep OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] sweep FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
-      - name: step 2 - score
-        run: python -u notebooks/run_img_baseline.py score
+      - name: stage - score
+        run: |
+          if python -u notebooks/run_img_baseline.py score; then
+            bund -m "img_det [job2] score OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] score FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: checkpoint scores
         if: always()
@@ -209,8 +272,15 @@ jobs:
           path: aludam/eval/data/index
           key: eval-${{ github.run_id }}-score
 
-      - name: step 3 - analyze + result.txt
-        run: python -u notebooks/run_img_baseline.py analyze
+      - name: stage - analyze + result.txt
+        run: |
+          if python -u notebooks/run_img_baseline.py analyze; then
+            bund -m "img_det [job2] analyze OK - result.txt ready" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] analyze FAILED. $RUN_URL" || true
+            exit 1
+          fi
 
       - name: upload result artifact
         if: always()
