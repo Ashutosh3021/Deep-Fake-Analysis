@@ -806,13 +806,14 @@ def get_detector(
 # ---------------------------------------------------------------------------
 
 def _header_guard(path: Path) -> Optional[str]:
-    """Header-only sanity check before decoding a payload file.
+    """Header/tag-only sanity check before decoding a payload file.
 
-    A handful of TIFF rows in this dataset declare absurd dimensions (or are
-    truncated): decoding them allocates gigabytes and gets the whole CI
-    runner OOM-killed -- observed as a deterministic mid-score
-    "operation was canceled" at the first real-class TIFF. Reading the
-    header never allocates the raster, so this catches the bomb safely.
+    Two killers observed on CI, both caught WITHOUT decoding:
+    1. absurd declared dimensions -> raster allocation blows the runner's RAM;
+    2. truncated TIFFs: the strip/tile table declares more bytes than the
+       file contains ("Truncated File Read") -> PIL allocates buffers sized
+       from the garbage declaration and the runner is OOM-killed mid-decode.
+    Reading header + tags costs microseconds and never allocates the raster.
 
     Returns an error string (row is skipped) or None (row is safe to score).
     """
@@ -821,6 +822,22 @@ def _header_guard(path: Path) -> Optional[str]:
         with Image.open(path) as im:
             w, h = im.size
             bands = max(len(im.getbands()), 1)
+            fmt = (im.format or "").upper()
+            strip_declared: Optional[int] = None
+            strip_max: Optional[int] = None
+            if fmt == "TIFF":
+                try:
+                    # 279 = StripByteCounts, 325 = TileByteCounts (no decode).
+                    sbc = im.tag_v2.get(279)
+                    if sbc is None:
+                        sbc = im.tag_v2.get(325)
+                    if sbc is not None:
+                        vals = [int(x) for x in sbc] if isinstance(
+                            sbc, (list, tuple)) else [int(sbc)]
+                        strip_declared = sum(vals)
+                        strip_max = max(vals)
+                except Exception:  # noqa: BLE001 - tag read failed: let decode decide
+                    pass
     except Exception as exc:  # noqa: BLE001 - corrupt/unsupported header
         return f"payload_unreadable: {type(exc).__name__}: {exc}"
     pixels = w * h
@@ -830,6 +847,16 @@ def _header_guard(path: Path) -> Optional[str]:
     if pixels * bands * 4 > 1_500_000_000:  # worst-case RGBA/float32 raster
         return (f"payload_too_large: {w}x{h}x{bands} predicted raster "
                 f"exceeds 1.5 GB header guard")
+    if fmt == "TIFF":
+        size_on_disk = path.stat().st_size
+        if strip_max is not None and strip_max > 512 * 1024 * 1024:
+            return (f"payload_too_large: strip declares "
+                    f"{strip_max / 1e6:.0f} MB (>512 MB) in "
+                    f"{size_on_disk / 1e6:.1f} MB file")
+        if strip_declared is not None and strip_declared > size_on_disk:
+            return (f"payload_truncated: strip table declares "
+                    f"{strip_declared / 1e6:.1f} MB but file is "
+                    f"{size_on_disk / 1e6:.1f} MB")
     return None
 
 
