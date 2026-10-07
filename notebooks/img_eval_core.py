@@ -825,17 +825,26 @@ def _header_guard(path: Path) -> Optional[str]:
             fmt = (im.format or "").upper()
             strip_declared: Optional[int] = None
             strip_max: Optional[int] = None
+            strip_reach: Optional[int] = None  # max(offset + count) - what a read would touch
             if fmt == "TIFF":
                 try:
-                    # 279 = StripByteCounts, 325 = TileByteCounts (no decode).
-                    sbc = im.tag_v2.get(279)
+                    # 273/324 = Strip/TileOffsets, 279/325 = Strip/TileByteCounts.
+                    tags = im.tag_v2
+                    sbc = tags.get(279)
                     if sbc is None:
-                        sbc = im.tag_v2.get(325)
-                    if sbc is not None:
-                        vals = [int(x) for x in sbc] if isinstance(
-                            sbc, (list, tuple)) else [int(sbc)]
-                        strip_declared = sum(vals)
-                        strip_max = max(vals)
+                        sbc = tags.get(325)
+                    soff = tags.get(273)
+                    if soff is None:
+                        soff = tags.get(324)
+                    counts = [int(x) for x in sbc] if isinstance(
+                        sbc, (list, tuple)) else ([int(sbc)] if sbc is not None else [])
+                    if counts:
+                        strip_declared = sum(counts)
+                        strip_max = max(counts)
+                        offs = [int(x) for x in soff] if isinstance(
+                            soff, (list, tuple)) else ([int(soff)] if soff is not None else [])
+                        if len(offs) == len(counts):
+                            strip_reach = max(o + c for o, c in zip(offs, counts))
                 except Exception:  # noqa: BLE001 - tag read failed: let decode decide
                     pass
     except Exception as exc:  # noqa: BLE001 - corrupt/unsupported header
@@ -853,6 +862,12 @@ def _header_guard(path: Path) -> Optional[str]:
             return (f"payload_too_large: strip declares "
                     f"{strip_max / 1e6:.0f} MB (>512 MB) in "
                     f"{size_on_disk / 1e6:.1f} MB file")
+        if strip_reach is not None and strip_reach > size_on_disk:
+            # exact condition behind PIL's "Truncated File Read": a strip read
+            # would seek past EOF. Decode allocates from these tags -> OOM.
+            return (f"payload_truncated: strip read reaches byte "
+                    f"{strip_reach / 1e6:.1f} MB but file is "
+                    f"{size_on_disk / 1e6:.1f} MB")
         if strip_declared is not None and strip_declared > size_on_disk:
             return (f"payload_truncated: strip table declares "
                     f"{strip_declared / 1e6:.1f} MB but file is "
