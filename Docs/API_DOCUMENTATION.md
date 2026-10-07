@@ -9,7 +9,7 @@
 
 ## 1. API Endpoint Documentation
 
-### GET `/api/status`
+### GET `/deep-guard/status`
 
 Check API health and which models are loaded.
 
@@ -33,7 +33,73 @@ Check API health and which models are loaded.
 
 ---
 
-### POST `/api/detect/image`
+### Common scan response envelope (v2)
+
+All `/deep-guard/detect/*` endpoints (image, audio, video, text, auto, fusion)
+return the same envelope. Example (video):
+
+```json
+{
+  "request_id": "rd_scan_9847120aef",
+  "status": "COMPLETED",
+  "media_type": "VIDEO",
+  "summary": {
+    "verdict": "ALTERED",
+    "overall_score": 0.66,
+    "confidence": "MEDIUM",
+    "confidence_pct": 62.0,
+    "claim_basis": "manipulation"
+  },
+  "ensemble_results": {
+    "visual_manipulation": { "score": 0.86, "signals_detected": ["TEMPORAL_INCONSISTENCY"] },
+    "visual_generation":   { "score": 0.31 },
+    "audio_manipulation":  { "score": 0.77, "signals_detected": ["AV_SYNC_MISMATCH"] }
+  },
+  "metadata_analysis": { "has_c2pa": null, "software_signature": "Unknown / Stripped" },
+  "reason": "family scores: ...; fired families: temporal_inconsistency; frames_analyzed=42; suspicious_intervals=[3.2-5.0s], [11.0-12.4s]; tier=3 (Inconclusive)",
+  "explanation": "The content appears to have been modified after capture (verdict ALTERED, confidence MEDIUM with a score of 0.66). Evidence: temporal inconsistency. Forensic detectors are probabilistic: treat this as a strong lead for review, not proof.",
+  "runtime": { "backend": "neural", "degraded": false, "explainer": "fallback", "elapsed_ms": 9000, "face_detector": "haar" },
+  "success": true,
+  "file_type": "video",
+  "result": { "label": "FAKE", "...": "full detector payload (unchanged)" }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `request_id` | Unique per scan: `rd_scan_` + 12 hex chars |
+| `status` | `COMPLETED` for every successful scan (errors use the error format below) |
+| `media_type` | `IMAGE` / `AUDIO` / `VIDEO` / `TEXT` / `FUSION` |
+| `summary.verdict` | `AUTHENTIC` · `SYNTHETIC` · `ALTERED` · `INCONCLUSIVE` — manipulation claim takes precedence over generation when both fired |
+| `summary.overall_score` | 0–1 fake probability (image `p_synthetic`, video fusion score, audio `fake_probability`, text `ai_probability`, fusion `fused_fake_probability`) |
+| `summary.confidence` | `HIGH` ≥ 75 · `MEDIUM` ≥ 55 · `LOW` — plus exact `confidence_pct` |
+| `ensemble_results` | Per-claim groups (`visual_manipulation`, `visual_generation`, `audio_manipulation`, `text_generation`) each `{score, signals_detected}` |
+| `metadata_analysis` | Present for image/video/fusion; `has_c2pa` from provenance score (null = not probed) |
+| `reason` | Dense technical derivation of the detector's own numbers (family scores, fired families, margins, intervals, segments). Passed through untouched once aludam Phase 3 emits its own `reason` |
+| `explanation` | Plain-language rewrite for end users (see below) |
+| `runtime` | `backend` neural/light, `degraded` (mock detector used), `explainer` tag, `elapsed_ms`, `face_detector` |
+| `success`, `file_type`, `result`, `modality_results`, `file_hash` | Legacy keys, kept for the dashboard and older clients |
+
+**`explanation` (LLM):** the backend rewrites `reason` for a non-expert audience
+using a configured LLM. Provider is auto-detected from whichever key env var is
+set; model comes from `LLM_MODEL` (both required):
+
+| Env var | Provider |
+|---------|----------|
+| `OPENAI_API_KEY` (+ optional `OPENAI_BASE_URL`) | OpenAI-compatible chat completions (Groq / OpenRouter / Ollama work) |
+| `GEMINI_API_KEY` | Google Gemini |
+| `ANTHROPIC_API_KEY` | Anthropic Claude |
+| `LLM_MODEL` | Model name, e.g. `gpt-4o-mini`, `claude-3-5-haiku-latest` |
+| `LLM_TIMEOUT` | Seconds (default 20) |
+| `LLM_DISABLE=1` | Force the deterministic fallback |
+
+No key/model configured, or the call fails → a deterministic fallback text is
+returned and `runtime.explainer = "fallback"`; a scan never fails because of
+the LLM. Successful calls report `runtime.explainer = "llm:<provider>/<model>"`.
+
+---
+
+### POST `/deep-guard/detect/image`
 
 Detect deepfakes in an image.
 
@@ -63,7 +129,7 @@ Detect deepfakes in an image.
 
 ---
 
-### POST `/api/detect/audio`
+### POST `/deep-guard/detect/audio`
 
 **Request:** `multipart/form-data`
 
@@ -92,7 +158,7 @@ Detect deepfakes in an image.
 
 ---
 
-### POST `/api/detect/video`
+### POST `/deep-guard/detect/video`
 
 **Request:** `multipart/form-data`
 
@@ -121,7 +187,7 @@ Detect deepfakes in an image.
 
 ---
 
-### POST `/api/detect/text`
+### POST `/deep-guard/detect/text`
 
 Detect AI-generated text.
 
@@ -153,7 +219,7 @@ Detect AI-generated text.
 
 ---
 
-### POST `/api/detect/auto`
+### POST `/deep-guard/detect/auto`
 
 Auto-detect file type from extension and run the matching detector.
 
@@ -177,7 +243,7 @@ Auto-detect file type from extension and run the matching detector.
 
 ---
 
-### POST `/api/detect/fusion`
+### POST `/deep-guard/detect/fusion`
 
 Multi-modal calibrated fusion (Bayesian LLR + quality gating + 4-tier verdict).
 
@@ -223,7 +289,7 @@ Multi-modal calibrated fusion (Bayesian LLR + quality gating + 4-tier verdict).
 
 ---
 
-### POST `/api/query`
+### POST `/deep-guard/query`
 
 YOLOv8 + Gemini query assistant.
 
@@ -277,14 +343,14 @@ python api.py
 
 | # | Method | Endpoint | Request Body / Content-Type | Success Response (200) | Error Responses |
 |---|--------|----------|----------------------------|------------------------|-----------------|
-| 1 | **GET** | `/api/status` | None | `{ status, version, models:{image,audio,video,text,query_assistant,fusion_engine}, features[], supported_types[] }` | — |
-| 2 | **POST** | `/api/detect/image` | `multipart/form-data` · field `file` (image: png/jpg/jpeg/gif) | `{ success:true, file_type:"image", result:{ label, confidence, family_scores, reasons[], faces_detected, notes } }` | 400 no/invalid file · 500 server error |
-| 3 | **POST** | `/api/detect/audio` | `multipart/form-data` · field `file` (mp3/wav) | `{ success:true, file_type:"audio", result:{ label, confidence, fake_probability, signal_source, feature_summary, suspicious_segments[], notes } }` | 400 no/invalid file · 500 server error |
-| 4 | **POST** | `/api/detect/video` | `multipart/form-data` · field `file` (mp4/avi/mov) | `{ success:true, file_type:"video", result:{ label, confidence, family_scores, reasons[], frames_analyzed, suspicious_intervals[], notes } }` | 400 no/invalid file · 500 server error |
-| 5 | **POST** | `/api/detect/text` | `application/json` · `{ "text": "string" }` | `{ success:true, file_type:"text", result:{ label, confidence, ai_probability, stylometry_signal, pattern_signal, watermark_signal, metrics, suspicious_spans[], notes } }` | 400 missing/empty text · 500 server error |
-| 6 | **POST** | `/api/detect/auto` | `multipart/form-data` · field `file` (any allowed type) | `{ success:true, file_type, file_hash:"sha256", result:{ ...depends on type } }` | 400 missing/unsupported type · 500 server error |
-| 7 | **POST** | `/api/detect/fusion` | `multipart/form-data` · `files[]` (multi file: image/audio/video) + optional `text` form field | `{ success:true, file_type, result:{ fused_fake_probability, verdict, tier, tier_name, confidence, quality_gates, modality_scores, fake_agreement_count, real_agreement_count, v2_gamed_veto, reasoning }, modality_results:{...} }` | 400 no valid content · 500 server error |
-| 8 | **POST** | `/api/query` | **A)** `multipart/form-data` · `file` (image) + `query` (string, optional) **OR B)** `application/json` · `{ "query": "string" }` | `{ success:true, ...assistant_result }` | 400 missing file/query · 500 assistant load fail |
+| 1 | **GET** | `/deep-guard/status` | None | `{ status, version, models:{image,audio,video,text,query_assistant,fusion_engine}, features[], supported_types[] }` | — |
+| 2 | **POST** | `/deep-guard/detect/image` | `multipart/form-data` · field `file` (image: png/jpg/jpeg/gif) | `{ success:true, file_type:"image", result:{ label, confidence, family_scores, reasons[], faces_detected, notes } }` | 400 no/invalid file · 500 server error |
+| 3 | **POST** | `/deep-guard/detect/audio` | `multipart/form-data` · field `file` (mp3/wav) | `{ success:true, file_type:"audio", result:{ label, confidence, fake_probability, signal_source, feature_summary, suspicious_segments[], notes } }` | 400 no/invalid file · 500 server error |
+| 4 | **POST** | `/deep-guard/detect/video` | `multipart/form-data` · field `file` (mp4/avi/mov) | `{ success:true, file_type:"video", result:{ label, confidence, family_scores, reasons[], frames_analyzed, suspicious_intervals[], notes } }` | 400 no/invalid file · 500 server error |
+| 5 | **POST** | `/deep-guard/detect/text` | `application/json` · `{ "text": "string" }` | `{ success:true, file_type:"text", result:{ label, confidence, ai_probability, stylometry_signal, pattern_signal, watermark_signal, metrics, suspicious_spans[], notes } }` | 400 missing/empty text · 500 server error |
+| 6 | **POST** | `/deep-guard/detect/auto` | `multipart/form-data` · field `file` (any allowed type) | `{ success:true, file_type, file_hash:"sha256", result:{ ...depends on type } }` | 400 missing/unsupported type · 500 server error |
+| 7 | **POST** | `/deep-guard/detect/fusion` | `multipart/form-data` · `files[]` (multi file: image/audio/video) + optional `text` form field | `{ success:true, file_type, result:{ fused_fake_probability, verdict, tier, tier_name, confidence, quality_gates, modality_scores, fake_agreement_count, real_agreement_count, v2_gamed_veto, reasoning }, modality_results:{...} }` | 400 no valid content · 500 server error |
+| 8 | **POST** | `/deep-guard/query` | **A)** `multipart/form-data` · `file` (image) + `query` (string, optional) **OR B)** `application/json` · `{ "query": "string" }` | `{ success:true, ...assistant_result }` | 400 missing file/query · 500 assistant load fail |
 
 ---
 
@@ -292,15 +358,15 @@ python api.py
 
 | Endpoint | Content-Type | Body Fields |
 |----------|-------------|-------------|
-| `/api/detect/image` | `multipart/form-data` | `file` = binary image |
-| `/api/detect/audio` | `multipart/form-data` | `file` = binary audio |
-| `/api/detect/video` | `multipart/form-data` | `file` = binary video |
-| `/api/detect/text` | `application/json` | `text` (string, required) |
-| `/api/detect/auto` | `multipart/form-data` | `file` = binary (image/audio/video) |
-| `/api/detect/fusion` | `multipart/form-data` | `files` = binary[] (repeated field) OR `text` = string (at least one required) |
-| `/api/query` (image) | `multipart/form-data` | `file` = binary image, `query` = string |
-| `/api/query` (text) | `application/json` | `query` = string |
-| `/api/status` | — | GET, no body |
+| `/deep-guard/detect/image` | `multipart/form-data` | `file` = binary image |
+| `/deep-guard/detect/audio` | `multipart/form-data` | `file` = binary audio |
+| `/deep-guard/detect/video` | `multipart/form-data` | `file` = binary video |
+| `/deep-guard/detect/text` | `application/json` | `text` (string, required) |
+| `/deep-guard/detect/auto` | `multipart/form-data` | `file` = binary (image/audio/video) |
+| `/deep-guard/detect/fusion` | `multipart/form-data` | `files` = binary[] (repeated field) OR `text` = string (at least one required) |
+| `/deep-guard/query` (image) | `multipart/form-data` | `file` = binary image, `query` = string |
+| `/deep-guard/query` (text) | `application/json` | `query` = string |
+| `/deep-guard/status` | — | GET, no body |
 
 ---
 
@@ -308,11 +374,11 @@ python api.py
 
 | Endpoint | Top-level keys in 200 response | Key `result` fields |
 |----------|-------------------------------|---------------------|
-| `/api/status` | `status, version, models, features, supported_types` | — |
-| `/api/detect/image` | `success, result, file_type` | `label, confidence, family_scores, reasons, faces_detected, notes` |
-| `/api/detect/audio` | `success, result, file_type` | `label, confidence, fake_probability, signal_source, feature_summary, suspicious_segments, notes` |
-| `/api/detect/video` | `success, result, file_type` | `label, confidence, family_scores, reasons, frames_analyzed, suspicious_intervals, notes` |
-| `/api/detect/text` | `success, result, file_type` | `label, confidence, ai_probability, stylometry_signal, pattern_signal, watermark_signal, metrics, suspicious_spans, notes` |
-| `/api/detect/auto` | `success, result, file_type, file_hash` | depends on detected type (image/audio/video schema) |
-| `/api/detect/fusion` | `success, result, modality_results, file_type` | `fused_fake_probability, verdict, tier, tier_name, confidence, quality_gates, modality_scores, fake/real_agreement_count, v2_gamed_veto, reasoning` |
-| `/api/query` | `success, ...assistant_result` | varies (Gemini/YOLO output) |
+| `/deep-guard/status` | `status, version, models, features, supported_types` | — |
+| `/deep-guard/detect/image` | `success, result, file_type` | `label, confidence, family_scores, reasons, faces_detected, notes` |
+| `/deep-guard/detect/audio` | `success, result, file_type` | `label, confidence, fake_probability, signal_source, feature_summary, suspicious_segments, notes` |
+| `/deep-guard/detect/video` | `success, result, file_type` | `label, confidence, family_scores, reasons, frames_analyzed, suspicious_intervals, notes` |
+| `/deep-guard/detect/text` | `success, result, file_type` | `label, confidence, ai_probability, stylometry_signal, pattern_signal, watermark_signal, metrics, suspicious_spans, notes` |
+| `/deep-guard/detect/auto` | `success, result, file_type, file_hash` | depends on detected type (image/audio/video schema) |
+| `/deep-guard/detect/fusion` | `success, result, modality_results, file_type` | `fused_fake_probability, verdict, tier, tier_name, confidence, quality_gates, modality_scores, fake/real_agreement_count, v2_gamed_veto, reasoning` |
+| `/deep-guard/query` | `success, ...assistant_result` | varies (Gemini/YOLO output) |

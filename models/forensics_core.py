@@ -595,7 +595,7 @@ def detect_faces(img: np.ndarray) -> List[Dict[str, Any]]:
       * haar (DEFAULT) -- OpenCV Haar cascade. Frontal-only but ~1ms and it
         never pulls TensorFlow into the process. TensorFlow + RetinaFace cost
         ~150MB RAM and 10-15s of CPU per image here, which is what used to
-        stall /api/detect/* until the client gave up with a 502.
+        stall /deep-guard/detect/* until the client gave up with a 502.
       * retinaface -- angle/occlusion robust, 5-point landmarks. Enable with
         DEEPGUARD_FACE_DETECTOR=retinaface when face-swap accuracy matters
         more than latency (and install tf-keras so Keras 3 doesn't break it).

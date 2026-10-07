@@ -28,7 +28,14 @@ os.environ.setdefault("USE_TF", "0")
 # Import new models from models/ directory
 import sys
 import importlib
+import time
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models'))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from scan_response import build_scan_response
+except ImportError:  # running as a package (flask --app backend.api)
+    from backend.scan_response import build_scan_response
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -500,7 +507,7 @@ def unhandled_error(e):
     return jsonify({'error': f'{type(e).__name__}: {e}'}), code
 
 
-@app.route('/api/detect/image', methods=['POST'])
+@app.route('/deep-guard/detect/image', methods=['POST'])
 def detect_image():
     try:
         if 'file' not in request.files:
@@ -519,28 +526,28 @@ def detect_image():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
+        t0 = time.time()
         detector = get_image_detector()
         if detector is None:
             result = mock_image_detection(filepath)
         else:
             result = detector.predict(filepath)
+        elapsed = int((time.time() - t0) * 1000)
 
         try:
             os.remove(filepath)
         except:
             pass
 
-        return jsonify({
-            'success': True,
-            'result': result,
-            'file_type': 'image'
-        })
+        return jsonify(build_scan_response(
+            'IMAGE', 'image', result,
+            elapsed_ms=elapsed, degraded=detector is None))
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/detect/audio', methods=['POST'])
+@app.route('/deep-guard/detect/audio', methods=['POST'])
 def detect_audio():
     try:
         if 'file' not in request.files:
@@ -559,28 +566,28 @@ def detect_audio():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
+        t0 = time.time()
         detector = get_audio_detector()
         if detector is None:
             result = mock_audio_detection(filepath)
         else:
             result = detector.predict(filepath)
+        elapsed = int((time.time() - t0) * 1000)
 
         try:
             os.remove(filepath)
         except:
             pass
 
-        return jsonify({
-            'success': True,
-            'result': result,
-            'file_type': 'audio'
-        })
+        return jsonify(build_scan_response(
+            'AUDIO', 'audio', result,
+            elapsed_ms=elapsed, degraded=detector is None))
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/detect/video', methods=['POST'])
+@app.route('/deep-guard/detect/video', methods=['POST'])
 def detect_video():
     try:
         if 'file' not in request.files:
@@ -599,28 +606,28 @@ def detect_video():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
+        t0 = time.time()
         detector = get_video_detector()
         if detector is None:
             result = mock_video_detection(filepath)
         else:
             result = detector.predict(filepath)
+        elapsed = int((time.time() - t0) * 1000)
 
         try:
             os.remove(filepath)
         except:
             pass
 
-        return jsonify({
-            'success': True,
-            'result': result,
-            'file_type': 'video'
-        })
+        return jsonify(build_scan_response(
+            'VIDEO', 'video', result,
+            elapsed_ms=elapsed, degraded=detector is None))
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/detect/text', methods=['POST'])
+@app.route('/deep-guard/detect/text', methods=['POST'])
 def detect_text():
     try:
         data = request.get_json()
@@ -632,23 +639,23 @@ def detect_text():
         if not text.strip():
             return jsonify({'error': 'Empty text'}), 400
 
+        t0 = time.time()
         detector = get_text_detector()
         if detector is None:
             result = mock_text_detection(text)
         else:
             result = detector.predict(text)
+        elapsed = int((time.time() - t0) * 1000)
 
-        return jsonify({
-            'success': True,
-            'result': result,
-            'file_type': 'text'
-        })
+        return jsonify(build_scan_response(
+            'TEXT', 'text', result,
+            elapsed_ms=elapsed, degraded=detector is None))
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/detect/auto', methods=['POST'])
+@app.route('/deep-guard/detect/auto', methods=['POST'])
 def detect_auto():
     try:
         if 'file' not in request.files:
@@ -669,6 +676,7 @@ def detect_auto():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
+        t0 = time.time()
         if file_type == 'image':
             detector = get_image_detector()
             result = detector.predict(filepath) if detector else mock_image_detection(filepath)
@@ -684,6 +692,7 @@ def detect_auto():
             except:
                 pass
             return jsonify({'error': 'Unsupported file type'}), 400
+        elapsed = int((time.time() - t0) * 1000)
 
         # Compute file hash
         file_hash = hashlib.sha256(open(filepath, 'rb').read()).hexdigest()
@@ -693,18 +702,16 @@ def detect_auto():
         except:
             pass
 
-        return jsonify({
-            'success': True,
-            'result': result,
-            'file_type': file_type,
-            'file_hash': file_hash,
-        })
+        return jsonify(build_scan_response(
+            file_type.upper(), file_type, result,
+            file_hash=file_hash, elapsed_ms=elapsed,
+            degraded=detector is None))
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/detect/fusion', methods=['POST'])
+@app.route('/deep-guard/detect/fusion', methods=['POST'])
 def detect_fusion():
     """
     Multi-modal fusion endpoint. Accepts multiple files or a text + file
@@ -757,20 +764,19 @@ def detect_fusion():
             return jsonify({'error': 'No valid content provided for fusion'}), 400
 
         # Run fusion engine
+        t0 = time.time()
         fusion_result = EvidenceFusionEngine.fuse(results)
+        elapsed = int((time.time() - t0) * 1000)
 
-        return jsonify({
-            'success': True,
-            'result': fusion_result,
-            'modality_results': results,
-            'file_type': file_type,
-        })
+        return jsonify(build_scan_response(
+            'FUSION', file_type, fusion_result,
+            modality_results=results, elapsed_ms=elapsed))
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/query', methods=['POST'])
+@app.route('/deep-guard/query', methods=['POST'])
 def query_assistant_endpoint():
     try:
         qa = get_query_assistant()
@@ -818,7 +824,7 @@ def query_assistant_endpoint():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/status', methods=['GET'])
+@app.route('/deep-guard/status', methods=['GET'])
 def get_status():
     return jsonify({
         'status': 'running',
@@ -958,14 +964,14 @@ if __name__ == '__main__':
     print(f"Upload folder: {UPLOAD_FOLDER}")
     print(f"Dashboard dir: {DASHBOARD_DIR}")
     print("API endpoints:")
-    print("  - POST /api/detect/image")
-    print("  - POST /api/detect/audio")
-    print("  - POST /api/detect/video")
-    print("  - POST /api/detect/text")
-    print("  - POST /api/detect/auto")
-    print("  - POST /api/detect/fusion   <- NEW: Multi-modal fusion")
-    print("  - POST /api/query")
-    print("  - GET  /api/status")
+    print("  - POST /deep-guard/detect/image")
+    print("  - POST /deep-guard/detect/audio")
+    print("  - POST /deep-guard/detect/video")
+    print("  - POST /deep-guard/detect/text")
+    print("  - POST /deep-guard/detect/auto")
+    print("  - POST /deep-guard/detect/fusion   <- NEW: Multi-modal fusion")
+    print("  - POST /deep-guard/query")
+    print("  - GET  /deep-guard/status")
     print(f"\nDashboard available at: http://localhost:{port}")
 
     try:

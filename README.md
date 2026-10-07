@@ -94,14 +94,14 @@ http://localhost:5000
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| `POST` | `/api/detect/image` | Detect deepfakes in images |
-| `POST` | `/api/detect/audio` | Detect deepfakes in audio |
-| `POST` | `/api/detect/video` | Detect deepfakes in videos |
-| `POST` | `/api/detect/text` | Detect AI-generated text |
-| `POST` | `/api/detect/auto` | Auto-detect file type and analyze |
-| `POST` | `/api/detect/fusion` | Multi-modal calibrated fusion |
-| `POST` | `/api/query` | YOLOv8 + Gemini query assistant |
-| `GET`  | `/api/status` | Check API status and loaded models |
+| `POST` | `/deep-guard/detect/image` | Detect deepfakes in images |
+| `POST` | `/deep-guard/detect/audio` | Detect deepfakes in audio |
+| `POST` | `/deep-guard/detect/video` | Detect deepfakes in videos |
+| `POST` | `/deep-guard/detect/text` | Detect AI-generated text |
+| `POST` | `/deep-guard/detect/auto` | Auto-detect file type and analyze |
+| `POST` | `/deep-guard/detect/fusion` | Multi-modal calibrated fusion |
+| `POST` | `/deep-guard/query` | YOLOv8 + Gemini query assistant |
+| `GET`  | `/deep-guard/status` | Check API status and loaded models |
 
 ## 4-Tier Verdicts
 

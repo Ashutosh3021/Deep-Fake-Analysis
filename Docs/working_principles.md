@@ -480,17 +480,17 @@ each route falls back to a **mock detector**.
 
 ### 10.1 Routes
 - `GET /` and `GET /<path>` → serves the dashboard.
-- `POST /api/detect/image|audio|video` — multipart file; saves to `uploads/`,
+- `POST /deep-guard/detect/image|audio|video` — multipart file; saves to `uploads/`,
   runs the detector, deletes the file, returns `{success, result, file_type}`.
-- `POST /api/detect/text` — JSON `{text}` → detector.predict(text).
-- `POST /api/detect/auto` — infers type from extension, runs the right
+- `POST /deep-guard/detect/text` — JSON `{text}` → detector.predict(text).
+- `POST /deep-guard/detect/auto` — infers type from extension, runs the right
   detector, returns file hash too.
-- `POST /api/detect/fusion` — accepts multiple files **and/or** an
+- `POST /deep-guard/detect/fusion` — accepts multiple files **and/or** an
   `text` form field; runs each modality detector, then
   `EvidenceFusionEngine.fuse(results)`; returns fused result + per-modality
   results.
-- `POST /api/query` — image (file) or text query for the assistant.
-- `GET /api/status` — running status, model availability, feature list.
+- `POST /deep-guard/query` — image (file) or text query for the assistant.
+- `GET /deep-guard/status` — running status, model availability, feature list.
 
 ### 10.2 `EvidenceFusionEngine`
 **Quality-aware gating** — per-modality `q`:
@@ -546,7 +546,7 @@ audio/video/text return bland UNCERTAIN results (50% confidence).
 
 ```
 Browser / client
-  → POST /api/detect/{image|audio|video}  (file)
+  → POST /deep-guard/detect/{image|audio|video}  (file)
   → file saved to uploads/ (secure_filename)
   → lazy loader instantiates the detector (or mock fallback)
   → detector.predict(path):
@@ -562,7 +562,7 @@ Browser / client
   → file deleted from uploads/
   → JSON {success, result, file_type[, file_hash]} returned
 
-POST /api/detect/fusion
+POST /deep-guard/detect/fusion
   → each uploaded modality detected independently
   → EvidenceFusionEngine: quality gates → fake scores → weighted fusion
      → agreement counts → provenance check → 4-tier verdict

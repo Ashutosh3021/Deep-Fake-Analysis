@@ -780,9 +780,9 @@ This also de-fangs root cause #3: an offline user gets a clear exception with in
   "media_type": "IMAGE",
   "summary": {
     "verdict": "SYNTHETIC",
-    "score": 0.94,
-    "confidence": 0.91,
-    "confidence_label": "HIGH",
+    "overall_score": 0.94,
+    "confidence": "HIGH",
+    "confidence_pct": 91.0,
     "claim_basis": "generation"
   },
   "ensemble_results": {
@@ -791,10 +791,12 @@ This also de-fangs root cause #3: an offline user gets a clear exception with in
     "audio_manipulation":  { "score": 0.88, "signals_detected": ["SYNTHETIC_SPEECH_RESONANCE"] }
   },
   "metadata_analysis": { "has_c2pa": false, "software_signature": "Unknown / Stripped" },
+  "reason": "family scores: fully_ai_generated=0.970, face_swap=0.960; fired families: …; faces_detected=1; tier=4 (Likely Synthetic)",
   "explanation": "…ranked from real signals…",
   "runtime": {
     "backend": "light|neural",
     "face_detector": "yunet|retinaface|haar",
+    "explainer": "fallback|llm:<provider>/<model>",
     "aludam_version": "1.0.0",
     "thresholds_version": "1.0.0",
     "degraded": false,
@@ -804,7 +806,8 @@ This also de-fangs root cause #3: an offline user gets a clear exception with in
 ```
 
 Notes on the contract:
-- `confidence` numeric **and** `confidence_label`; `score` kept separate (0 = authentic, 1 = synthetic/altered)
+- `summary.confidence` is the label (`HIGH`/`MEDIUM`/`LOW`) with exact `confidence_pct` alongside; `overall_score` kept separate (0 = authentic, 1 = synthetic/altered)
+- `reason` is the dense technical derivation (family scores, fired families, intervals, segments) — Phase 3 replaces it with aludam's own `reason` when provided; `explanation` is the LLM plain-language rewrite (multi-provider, env-configured, deterministic fallback)
 - `media_type` derived from the actual response, never assumed
 - `status` retained to match the original spec; `runtime.*` is what tells the truth
 - `runtime.face_detector` makes root cause #1 observable instead of buried in a log line

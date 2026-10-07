@@ -101,7 +101,7 @@ class DeepGuardDashboard {
         formData.append('file', file);
 
         try {
-            const response = await fetch(`${this.apiBaseUrl}/api/detect/auto`, {
+            const response = await fetch(`${this.apiBaseUrl}/deep-guard/detect/auto`, {
                 method: 'POST',
                 body: formData
             });
@@ -187,7 +187,7 @@ class DeepGuardDashboard {
         this.hideError();
 
         try {
-            const response = await fetch(`${this.apiBaseUrl}/api/detect/text`, {
+            const response = await fetch(`${this.apiBaseUrl}/deep-guard/detect/text`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -553,7 +553,7 @@ class DeepGuardDashboard {
 
     async checkApiStatus() {
         try {
-            const response = await fetch(`${this.apiBaseUrl}/api/status`);
+            const response = await fetch(`${this.apiBaseUrl}/deep-guard/status`);
             if (response.ok) {
                 const data = await response.json();
                 console.log('API Status:', data);
@@ -667,7 +667,7 @@ class QueryAssistant {
             formData.append('file', this.selectedFile);
             if (query) formData.append('query', query);
 
-            const response = await fetch(`${this.apiBaseUrl}/api/query`, {
+            const response = await fetch(`${this.apiBaseUrl}/deep-guard/query`, {
                 method: 'POST',
                 body: formData,
             });
@@ -745,7 +745,7 @@ class QueryAssistant {
         this._showQaLoading(true);
 
         try {
-            const response = await fetch(`${this.apiBaseUrl}/api/query`, {
+            const response = await fetch(`${this.apiBaseUrl}/deep-guard/query`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query }),
@@ -802,7 +802,7 @@ class QueryAssistant {
 
 /* ════════════════════════════════════════════════════════════
    Multi-Modal Fusion UI
-   Wires up the fusion section to POST /api/detect/fusion and
+   Wires up the fusion section to POST /deep-guard/detect/fusion and
    renders the 4-tier cross-modal verdict.
    ════════════════════════════════════════════════════════════ */
 class FusionAnalyzer {
@@ -854,7 +854,7 @@ class FusionAnalyzer {
             if (audioFile) formData.append('files', audioFile);
             if (textVal)   formData.append('text', textVal);
 
-            const response = await fetch(`${this.apiBaseUrl}/api/detect/fusion`, {
+            const response = await fetch(`${this.apiBaseUrl}/deep-guard/detect/fusion`, {
                 method: 'POST',
                 body: formData,
             });
