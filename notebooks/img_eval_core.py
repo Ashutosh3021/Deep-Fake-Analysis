@@ -805,6 +805,34 @@ def get_detector(
 # Step 5 - score
 # ---------------------------------------------------------------------------
 
+def _header_guard(path: Path) -> Optional[str]:
+    """Header-only sanity check before decoding a payload file.
+
+    A handful of TIFF rows in this dataset declare absurd dimensions (or are
+    truncated): decoding them allocates gigabytes and gets the whole CI
+    runner OOM-killed -- observed as a deterministic mid-score
+    "operation was canceled" at the first real-class TIFF. Reading the
+    header never allocates the raster, so this catches the bomb safely.
+
+    Returns an error string (row is skipped) or None (row is safe to score).
+    """
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            w, h = im.size
+            bands = max(len(im.getbands()), 1)
+    except Exception as exc:  # noqa: BLE001 - corrupt/unsupported header
+        return f"payload_unreadable: {type(exc).__name__}: {exc}"
+    pixels = w * h
+    if pixels > 150_000_000 or w > 30_000 or h > 30_000:
+        return (f"payload_too_large: {w}x{h} ({pixels / 1e6:.0f} MP "
+                f"exceeds 150 MP header guard)")
+    if pixels * bands * 4 > 1_500_000_000:  # worst-case RGBA/float32 raster
+        return (f"payload_too_large: {w}x{h}x{bands} predicted raster "
+                f"exceeds 1.5 GB header guard")
+    return None
+
+
 def score_all(
     detector: Any,
     selected: Sequence[Dict[str, Any]],
@@ -851,28 +879,34 @@ def score_all(
                 rec["error"] = "payload_missing"
                 stats["errors"] += 1
             else:
-                try:
-                    res = detector.predict(str(path))
-                    fam_raw = dict(res.details.get("family_scores") or {})
-                    fam = {
-                        k: v for k, v in fam_raw.items()
-                        if isinstance(v, (int, float)) and not isinstance(v, bool)
-                    }
-                    guarded = res.details.get("reason") == "input_below_model_minimum"
-                    rec.update({
-                        "score": float(res.score),
-                        "up": res.label,
-                        "conf": float(res.confidence),
-                        "cal": bool(res.runtime.get("calibrated")),
-                        "ms": int(res.elapsed_ms),
-                        "guard": 1 if guarded else 0,
-                        "fam": fam,
-                    })
-                    stats["scored"] += 1
-                    stats["guarded"] += 1 if guarded else 0
-                except Exception as exc:  # noqa: BLE001 - recorded, continue
-                    rec["error"] = f"{type(exc).__name__}: {exc}"
+                guard_err = _header_guard(path)
+                if guard_err:
+                    rec["error"] = guard_err
                     stats["errors"] += 1
+                    log(f"[score] skip i={i}: {guard_err}")
+                else:
+                    try:
+                        res = detector.predict(str(path))
+                        fam_raw = dict(res.details.get("family_scores") or {})
+                        fam = {
+                            k: v for k, v in fam_raw.items()
+                            if isinstance(v, (int, float)) and not isinstance(v, bool)
+                        }
+                        guarded = res.details.get("reason") == "input_below_model_minimum"
+                        rec.update({
+                            "score": float(res.score),
+                            "up": res.label,
+                            "conf": float(res.confidence),
+                            "cal": bool(res.runtime.get("calibrated")),
+                            "ms": int(res.elapsed_ms),
+                            "guard": 1 if guarded else 0,
+                            "fam": fam,
+                        })
+                        stats["scored"] += 1
+                        stats["guarded"] += 1 if guarded else 0
+                    except Exception as exc:  # noqa: BLE001 - recorded, continue
+                        rec["error"] = f"{type(exc).__name__}: {exc}"
+                        stats["errors"] += 1
             fh.write(json.dumps(rec, ensure_ascii=True) + "\n")
             fh.flush()
             if n % every == 0 or n == len(todo):
