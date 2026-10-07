@@ -6,6 +6,7 @@ Usage:
     .venv\\Scripts\\python.exe -u notebooks\\run_img_baseline.py            # all steps
     .venv\\Scripts\\python.exe -u notebooks\\run_img_baseline.py payload    # one step
     .venv\\Scripts\\python.exe -u notebooks\\run_img_baseline.py score
+    ... run_img_baseline.py score 0:250     # a slice; resumable, cumulative stats
     .venv\\Scripts\\python.exe -u notebooks\\run_img_baseline.py analyze
 
 Steps: index (implicit, cache-backed) -> payload -> score -> analyze.
@@ -25,7 +26,19 @@ CONFIG = dict(
     device="auto",     # "auto" = CUDA when available, else CPU
     workers=8,         # parallel metadata readers (HF-friendly)
     score_every=25,    # progress log interval, in images
+    recycle_every=250,         # isolated scoring: fresh worker every N images
+    per_image_timeout_s=240,   # isolated scoring: kill a worker stuck this long
 )
+
+
+def _use_isolation() -> bool:
+    """Isolated (crash-proof) scoring: SCORE_ISOLATE=1/0, default on in CI."""
+    v = os.environ.get("SCORE_ISOLATE", "").strip().lower()
+    if v in ("1", "true", "yes"):
+        return True
+    if v in ("0", "false", "no"):
+        return False
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
 
 VALID_STEPS = ("index", "payload", "score", "analyze")
 
@@ -131,14 +144,38 @@ def do_payload(sel) -> Dict[str, int]:
     return stats
 
 
-def do_score(selected) -> Dict[str, Any]:
-    detector, device_used, device_notes = core.get_detector(CONFIG["device"])
-    print("device:", device_used)
-    for n in device_notes:
-        print(" -", n)
-    stats = core.score_all(detector, selected, PAYLOAD_DIR, SCORES_PATH,
-                           every=CONFIG["score_every"])
-    print("scores:", stats)
+def do_score(selected, all_selected=None) -> Dict[str, Any]:
+    """Score ``selected`` (a slice is fine). Stats are always recomputed from
+    the scores file so chunked / resumed runs report cumulative totals."""
+    all_selected = all_selected if all_selected is not None else selected
+    if _use_isolation():
+        import img_score_supervisor as sup  # noqa: PLC0415
+
+        print("scoring mode: ISOLATED worker (crash-proof, memory-watched)")
+        _, info = sup.score_all_isolated(
+            selected, PAYLOAD_DIR, SCORES_PATH, repo=REPO,
+            payload_path_fn=core._payload_path,  # noqa: SLF001
+            device=CONFIG["device"], every=CONFIG["score_every"],
+            recycle_every=CONFIG["recycle_every"],
+            per_image_timeout_s=CONFIG["per_image_timeout_s"],
+            rss_limit_mb=sup.default_rss_limit_mb())
+        device_used = info.get("device_used") or state_load().get(
+            "device_used") or "unknown"
+        device_notes = list(info.get("notes") or [])
+        if info.get("worker_losses"):
+            device_notes.append(
+                f"{info['worker_losses']} worker loss(es) during scoring "
+                "(see [score] WORKER LOST lines); affected rows are recorded "
+                "as errors.")
+    else:
+        detector, device_used, device_notes = core.get_detector(CONFIG["device"])
+        print("device:", device_used)
+        for n in device_notes:
+            print(" -", n)
+        core.score_all(detector, selected, PAYLOAD_DIR, SCORES_PATH,
+                       every=CONFIG["score_every"])
+    stats = fs_stats(all_selected)["score_stats"]
+    print("scores (cumulative):", stats)
     state_save(score_stats=stats, device_used=device_used,
                device_notes=list(device_notes))
     return {"score_stats": stats, "device_used": device_used,
@@ -180,8 +217,9 @@ def main() -> None:
     bad = [a for a in args if a not in VALID_STEPS]
     if bad:
         raise SystemExit(f"unknown step(s) {bad}; valid: {VALID_STEPS} or 'all'")
-    if payload_slice and "payload" not in args:
-        raise SystemExit("a:b slice is only valid with the payload step")
+    if payload_slice and not ({"payload", "score"} & set(args)):
+        raise SystemExit(
+            "a:b slice is only valid with the payload or score step")
     if "index" in args and len(args) == 1:
         args = []  # index alone = just build+select, nothing else to do
 
@@ -196,7 +234,12 @@ def main() -> None:
             print(f"payload slice [{lo}:{hi}] -> {len(sel)} row(s)")
         do_payload(sel)
     if "score" in args:
-        do_score(selected)
+        sel_s = selected
+        if payload_slice:
+            lo, hi = payload_slice
+            sel_s = selected[lo:hi]
+            print(f"score slice [{lo}:{hi}] -> {len(sel_s)} row(s)")
+        do_score(sel_s, selected)
     if "analyze" in args:
         do_analyze(selected, splits, evidence, warns)
 

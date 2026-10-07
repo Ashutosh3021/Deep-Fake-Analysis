@@ -147,6 +147,8 @@ jobs:
     needs: payload-first-half
     runs-on: ubuntu-latest
     timeout-minutes: 355
+    env:
+      SCORE_ISOLATE: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -255,22 +257,137 @@ jobs:
             exit 1
           fi
 
-      - name: stage - score
+      - name: stage - score chunk 1/6 (rows 0-249)
         run: |
-          if python -u notebooks/run_img_baseline.py score; then
-            bund -m "img_det [job2] score OK" || true
+          if python -u notebooks/run_img_baseline.py score 0:250; then
+            bund -m "img_det [job2] score chunk 1/6 OK" || true
           else
             RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            bund -m "img_det [job2] score FAILED. $RUN_URL" || true
+            bund -m "img_det [job2] score chunk 1/6 FAILED. $RUN_URL" || true
             exit 1
           fi
 
-      - name: checkpoint scores
+      - name: checkpoint score chunk 1/6
         if: always()
         uses: actions/cache/save@v4
         with:
           path: aludam/eval/data/index
-          key: eval-${{ github.run_id }}-score
+          key: eval-${{ github.run_id }}-${{ github.run_attempt }}-s1
+
+      - name: stage - score chunk 2/6 (rows 250-499)
+        run: |
+          if python -u notebooks/run_img_baseline.py score 250:500; then
+            bund -m "img_det [job2] score chunk 2/6 OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] score chunk 2/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
+
+      - name: checkpoint score chunk 2/6
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-${{ github.run_attempt }}-s2
+
+      - name: stage - score chunk 3/6 (rows 500-749)
+        run: |
+          if python -u notebooks/run_img_baseline.py score 500:750; then
+            bund -m "img_det [job2] score chunk 3/6 OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] score chunk 3/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
+
+      - name: checkpoint score chunk 3/6
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-${{ github.run_attempt }}-s3
+
+      - name: stage - score chunk 4/6 (rows 750-999)
+        run: |
+          if python -u notebooks/run_img_baseline.py score 750:1000; then
+            bund -m "img_det [job2] score chunk 4/6 OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] score chunk 4/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
+
+      - name: checkpoint score chunk 4/6
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-${{ github.run_attempt }}-s4
+
+      - name: stage - score chunk 5/6 (rows 1000-1249)
+        run: |
+          if python -u notebooks/run_img_baseline.py score 1000:1250; then
+            bund -m "img_det [job2] score chunk 5/6 OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] score chunk 5/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
+
+      - name: checkpoint score chunk 5/6
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-${{ github.run_attempt }}-s5
+
+      - name: stage - score chunk 6/6 (rows 1250-1499)
+        run: |
+          if python -u notebooks/run_img_baseline.py score 1250:1500; then
+            bund -m "img_det [job2] score chunk 6/6 OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] score chunk 6/6 FAILED. $RUN_URL" || true
+            exit 1
+          fi
+
+      - name: checkpoint score chunk 6/6
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-${{ github.run_attempt }}-s6
+
+      - name: stage - score sweep (resume anything missed)
+        run: |
+          if python -u notebooks/run_img_baseline.py score ; then
+            bund -m "img_det [job2] score sweep OK" || true
+          else
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            bund -m "img_det [job2] score sweep FAILED. $RUN_URL" || true
+            exit 1
+          fi
+
+      - name: checkpoint score sweep
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: aludam/eval/data/index
+          key: eval-${{ github.run_id }}-${{ github.run_attempt }}-score
+
+      - name: score diagnostics (memory / OOM evidence)
+        if: always()
+        run: |
+          free -m || true
+          echo "--- kernel OOM / kill messages (if any) ---"
+          sudo dmesg 2>/dev/null | grep -i -E "out of memory|killed process|oom" | tail -20 || true
+          echo "--- score records: total / errors ---"
+          f=aludam/eval/data/index/img_scores.jsonl
+          if [ -f "$f" ]; then
+            echo "total: $(wc -l < $f)  with error: $(grep -c '"error"' $f || true)"
+            grep '"error": "worker_' $f | head -20 || true
+          fi
 
       - name: stage - analyze + result.txt
         run: |
